@@ -13,12 +13,12 @@ const resolve = require('../lib/resolve');
 const { Keepalive } = require('../lib/keepalive');
 const log = require('../lib/log').log;
 
-const USAGE = 'keepalive <实例> [--nudge 60] [--max-nudges 0] [--question-timeout 0] [--sec 0] [--no-nudge] [--prompt "文案"]';
+const USAGE = 'keepalive <实例> [--nudge 60] [--max-nudges 0] [--question-timeout 0] [--stall 30] [--sec 0] [--no-nudge] [--prompt "文案"]';
 
 async function run(argv) {
   const args = parse(argv, {
     flags: ['no-nudge'],
-    values: ['nudge', 'max-nudges', 'question-timeout', 'sec', 'prompt'],
+    values: ['nudge', 'max-nudges', 'question-timeout', 'sec', 'prompt', 'stall'],
     aliases: { n: 'nudge', s: 'sec' },
   });
   const [ref] = need(args, 1, USAGE);
@@ -29,6 +29,7 @@ async function run(argv) {
     nudgeSec: num(args.opts.nudge, k.nudgeSec),
     maxNudges: num(args.opts['max-nudges'], k.maxNudges),
     questionTimeoutSec: num(args.opts['question-timeout'], k.questionTimeoutSec),
+    stallAfterNudgeSec: num(args.opts.stall, k.stallAfterNudgeSec),
     prompt: args.opts.prompt || k.prompt,
     noNudge: !!args.opts['no-nudge'],
     log: (m) => log(`[${inst.name || inst.id}] ${m}`),

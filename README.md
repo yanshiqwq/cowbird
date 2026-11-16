@@ -174,8 +174,27 @@ nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
 ⚠ 三个前提：① 那个 agent 会**永远停在那句提问上**，别对还要继续干活的会话开；
 ② 催话文案可配（`--prompt`），它在替你对 agent 说话；③ 一个 keepalive 占一条长连接。
 
-配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `leadMs` / `prompt`。
+配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
 凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
+
+### 断线了怎么办
+
+长连接最常见的坏法不是"断开"，而是"**没断，但再也不来数据**"（NAT 超时、网关回收订阅、
+TCP 半开）。这时候 socket 还开着、`reader.read()` 永远不返回，程序看起来一切正常。四道防线：
+
+| 情况 | 处理 |
+|---|---|
+| bootstrap 迟迟不给响应头 | `connectTimeoutMs`（20s）后放弃重试 —— 否则 fetch 会永远挂着 |
+| 单条 POST 挂住 | `postTimeoutMs`（15s）超时 |
+| 催话后一个字节都收不到 | `stallAfterNudgeSec`（30s）后判定连接已死，主动断开重连 |
+| 连续 3 次发送失败 | 主动断开重连，计数器归零 |
+
+重连本身也退避：活不过 30 秒的连接算"短连接"，间隔 5s → 10s → 20s → 40s → 60s 封顶，
+避免对着一个坏网关每 5 秒锤一次。
+
+**仍有一处检测不到**：如果流已经半开、而上面正好挂着一个提问，进程会认为"正在等用户回答"
+（这本来就是它该有的样子）。好在这种情况下那一轮**已经被钉住了**，保活目的已经达到；
+要恢复观测能力，重启一次进程即可。
 
 ## HTTP 接口
 

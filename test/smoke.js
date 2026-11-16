@@ -230,6 +230,55 @@ function frame(obj) {
     assert.strictEqual(calls.length, 0);
   });
 
+  await okAsync('催话失败后不会每秒重试（时间戳先推进）', async () => {
+    const { kp } = mkKp({ nudgeSec: 0 });
+    kp._acp.post = async () => { throw new Error('boom'); };
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(kp.state.nudges, 1);
+    assert.strictEqual(kp._nudgeFails, 1);
+    assert.ok(Date.now() - kp._lastNudgeAt < 1000, '失败也要推进，否则 1 秒一次重试风暴');
+  });
+  await okAsync('催话后收不到任何字节 ⇒ 判定半开并重连', async () => {
+    let closed = 0;
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' },
+      { nudgeSec: 9999, stallAfterNudgeSec: 30, log: () => {} });
+    kp._acp = { lastByteAt: 0, post: async () => ({ status: 200, text: '' }), close: () => { closed++; } };
+    kp.state.connected = true;
+    kp._silentFrom = Date.now() - 31000;       // 31 秒前开始催，此后零字节
+    await kp.tick();
+    assert.strictEqual(closed, 1, '应主动断开，交给连接循环重连');
+    assert.strictEqual(kp._silentFrom, 0);
+  });
+  await okAsync('催话后收到过字节 ⇒ 不判死', async () => {
+    let closed = 0;
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' },
+      { nudgeSec: 9999, stallAfterNudgeSec: 30, log: () => {} });
+    kp._acp = { lastByteAt: Date.now(), post: async () => ({ status: 200, text: '' }), close: () => { closed++; } };
+    kp.state.connected = true;
+    kp._silentFrom = Date.now() - 31000;
+    await kp.tick();
+    assert.strictEqual(closed, 0);
+  });
+  await okAsync('连续失败 3 次才重连，且计数器归零不会累积', async () => {
+    let closed = 0;
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' },
+      { nudgeSec: 0, log: () => {} });
+    kp._acp = { lastByteAt: 0, post: async () => { throw new Error('boom'); }, close: () => { closed++; } };
+    kp.state.connected = true;
+    for (let i = 0; i < 3; i++) { kp._lastNudgeAt = 0; await kp.tick(); }
+    assert.strictEqual(closed, 1, '第 3 次失败才重连');
+    assert.strictEqual(kp._nudgeFails, 0, '重连后必须归零');
+  });
+
+  await okAsync('连续短连接按 2 的幂退避、封顶 60s', async () => {
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' }, { reconnectMs: 5000, log: () => {} });
+    assert.strictEqual(kp.backoffMs(), 5000);
+    kp._shortSessions = 1; assert.strictEqual(kp.backoffMs(), 10000);
+    kp._shortSessions = 3; assert.strictEqual(kp.backoffMs(), 40000);
+    kp._shortSessions = 9; assert.strictEqual(kp.backoffMs(), 60000);
+  });
+
   // 收尾
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   console.log(`\n${fail ? '\u2717' : '\u2713'} ${pass} 通过${fail ? '，' + fail + ' 失败' : ''}\n`);
