@@ -279,6 +279,15 @@ function frame(obj) {
     kp._shortSessions = 9; assert.strictEqual(kp.backoffMs(), 60000);
   });
 
+  await okAsync('催话 POST 超时、但连接有事件回来 ⇒ 不算失败', async () => {
+    const { kp } = mkKp();
+    kp._acp.post = async () => { kp._acp.lastByteAt = Date.now() + 1000; throw new Error('timeout'); };
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(kp.state.nudges, 1);
+    assert.strictEqual(kp._nudgeFails, 0, 'agent 都动了，不能记成失败');
+  });
+
   // 收尾
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   console.log(`\n${fail ? '\u2717' : '\u2713'} ${pass} 通过${fail ? '，' + fail + ' 失败' : ''}\n`);
