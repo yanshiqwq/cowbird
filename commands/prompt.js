@@ -1,4 +1,7 @@
 // wbsbx prompt —— 代实例发一条消息（用户口吻）
+//
+// 参数规则同 exec：实例之后的所有内容都是要发的文本，不用加引号。
+// 所以 prompt 自己的选项写在实例之前：`wbsbx prompt --wait 30 01 帮我看下磁盘`
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
 const cloud = require('../lib/cloud');
@@ -7,11 +10,12 @@ const resolve = require('../lib/resolve');
 const log = require('../lib/log').log;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const USAGE = 'prompt [--wait 秒] [--raw] <实例> <文本...>';
 
 async function run(argv) {
-  const args = parse(argv, { values: ['wait', 'grep'], flags: ['raw'], aliases: { w: 'wait' } });
-  const [ref] = need(args, 2, 'prompt <实例> "<文本>" [--wait 15]');
-  const text = args._[1];
+  const args = parse(argv, { values: ['wait', 'grep'], flags: ['raw'], aliases: { w: 'wait' }, stopAfter: 1 });
+  const [ref] = need(args, 2, USAGE);
+  const text = args._.slice(1).join(' ');
   const wait = num(args.opts.wait, 15);
   const inst = await resolve.resolve(ref);
   const s = await cloud.getSession(inst.id, log);
@@ -38,4 +42,4 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'prompt <实例> "<文本>" [--wait 秒] [--raw]' };
+module.exports = { run, usage: USAGE };

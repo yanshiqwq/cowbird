@@ -10,6 +10,7 @@ tokens/
 token-*.json
 conversations.json
 state.json
+state.json.last-good
 wbsbx.json
 daemon.pid
 daemon-state.json

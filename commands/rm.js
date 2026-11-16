@@ -21,7 +21,7 @@ async function run(argv) {
       console.log(ui.c.red('  ⚠ 这个实例正在干活，删了会把正在跑的任务一起干掉'));
     }
     console.log(ui.c.dim(`\n确认无误后重跑：wbsbx rm ${ref}${args.opts.archive ? ' --archive' : ''} --yes`));
-    return 2;
+    return 0;
   }
 
   await cloud.deleteConversation(inst.id, { archive: args.opts.archive });

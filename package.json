@@ -23,7 +23,20 @@
     "start": "node bin/wbsbx.js",
     "daemon": "node bin/wbsbx-daemon.js",
     "ls": "node bin/wbsbx.js ls",
-    "doctor": "node bin/wbsbx.js doctor"
+    "doctor": "node bin/wbsbx.js doctor",
+    "test": "node test/smoke.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "author": "yanshiqwq",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yanshiqwq/wbsbx.git"
+  },
+  "homepage": "https://github.com/yanshiqwq/wbsbx#readme",
+  "bugs": {
+    "url": "https://github.com/yanshiqwq/wbsbx/issues"
   },
   "optionalDependencies": {
     "playwright-core": "^1.47.0"

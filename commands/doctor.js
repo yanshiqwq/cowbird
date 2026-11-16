@@ -109,8 +109,8 @@ function checkBrowser() {
     add('info', '浏览器', '没装 playwright-core —— 只影响 wbsbx login 和 daemon 的登录态续期');
     return;
   }
-  const exe = browser.chromeBin();
-  add('info', '浏览器', exe ? `${exe} —— 仅登录/续期需要` : '找不到 Edge/chromium —— 仅影响登录/续期');
+  const desc = browser.describe();
+  add('info', '浏览器', desc ? `${desc} —— 仅登录/续期需要` : '找不到 Edge/chromium —— 仅影响登录/续期，可设 WBSBX_BROWSER 指定路径');
 }
 
 async function run(argv) {

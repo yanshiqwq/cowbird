@@ -66,7 +66,7 @@ async function main() {
   GET  /health            健康检查（无鉴权）
   GET  /api/status        状态 + 最近各轮结果
   GET  /api/state         登录态（cookie + UA）
-  PUT  /api/state         推入新登录态（wbsbx login --push 用）
+  PUT  /api/state         推入新登录态（供另一台机器 login 后同步）
   GET  /api/token/:id     E2B 访问凭据
   POST /api/heal          立即保活一轮
   POST /api/refresh       立即刷 token
