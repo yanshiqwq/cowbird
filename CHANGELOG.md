@@ -20,6 +20,8 @@
   脚本读不到算本轮失败，不静默降级；输出里的 `ERROR:` 行单独记为告警，出现在
   `daemon status` 的「N 条告警」里。
 - `doctor` 新增「保活目标」一项：脚本路径写错在启动前就看得见。
+- `WBSBX_PW_MODULE`：显式指定 playwright-core 的位置。容器/服务器上常把它装在镜像某处
+  （既不在项目 node_modules 也不在 NODE_PATH），没有这个变量 `renew` 只能报"找不到"。
 - 每条命令的 `--help` 增加 `选项 / 说明 / 退出码` 三段；主 help 重新分组。
 
 ### 变更

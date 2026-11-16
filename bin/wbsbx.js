@@ -95,6 +95,8 @@ ${ui.c.bold('环境变量')}
   WB_CLOUD_HOME           数据目录（默认 ~/.wbsbx）
   WBSBX_DAEMON_URL        等同于 --remote
   WBSBX_DAEMON_TOKEN      等同于 --token
+  WBSBX_PW_MODULE         playwright-core 的位置（装在镜像里时用）
+  WBSBX_BROWSER           chromium/edge 可执行文件路径
 `);
   console.log(ui.c.dim('运行 `wbsbx <命令> --help` 查看该命令的选项与退出码。'));
   return 0;
