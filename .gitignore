@@ -1,0 +1,23 @@
+node_modules/
+*.log
+.DS_Store
+Thumbs.db
+
+# 运行时状态（不在仓库里）
+.wb-cloud/
+data/
+tokens/
+token-*.json
+conversations.json
+state.json
+wbsbx.json
+daemon.pid
+daemon-state.json
+history-*.jsonl
+history-*.txt
+refresh.lock
+storage-state.json
+*.bak.*
+*.tgz
+dist/
+test/_*.txt

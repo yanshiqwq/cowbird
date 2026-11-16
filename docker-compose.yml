@@ -1,0 +1,29 @@
+# wbsbx daemon
+#
+#   docker compose up -d
+#
+# 第一次用之前先在这台机器（或任何有浏览器的机器）上跑一次 wbsbx login，
+# 然后把 state.json 放进 ./data/ 里 —— 容器不会帮你扫码。
+services:
+  daemon:
+    build:
+      context: .
+      target: ${WBSBX_IMAGE_TARGET:-slim}
+    image: wbsbx-daemon:${WBSBX_IMAGE_TARGET:-slim}
+    container_name: wbsbx-daemon
+    restart: unless-stopped
+    # 默认只监听回环：走 SSH 隧道或者反代再暴露，别直接怼公网
+    ports:
+      - "127.0.0.1:8787:8787"
+    volumes:
+      - ./data:/data
+    environment:
+      WB_CLOUD_HOME: /data
+      # 令牌从 ./data/wbsbx.json 读；首次启动会自动生成并写进去
+      # WBSBX_DAEMON_TOKEN: 也可以从环境变量给
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
