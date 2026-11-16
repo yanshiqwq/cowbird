@@ -29,4 +29,16 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'create <名字> [--model M] [--prompt "文本"]' };
+module.exports = {
+  run,
+  usage: 'create <名字> [--model <模型>] [--prompt <文本>]',
+  help: [
+    '选项:',
+    '  --model <模型>   默认 deepseek-v4.1-flash',
+    '  --prompt <文本>  初始指令，最多 100 字',
+    '',
+    '说明:',
+    '  一个实例 = 一个会话 + 一个容器。创建接口不认名字，所以会建完再改一次标题（两次请求）。',
+    '  建好之后建议立刻 `wbsbx daemon targets add <名字>`，否则没人访问就会倒计时回收。',
+  ],
+};

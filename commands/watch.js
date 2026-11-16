@@ -6,10 +6,12 @@ const { tap } = require('../lib/acp');
 const resolve = require('../lib/resolve');
 const log = require('../lib/log').log;
 
+const USAGE = 'watch [--duration <秒>] [--raw] [--grep <词>] <实例>';
+
 async function run(argv) {
-  const args = parse(argv, { values: ['sec', 'grep'], flags: ['raw'], aliases: { s: 'sec' } });
-  const [ref] = need(args, 1, 'watch <实例> [--sec 20] [--raw] [--grep 关键词]');
-  const sec = num(args.opts.sec, 20);
+  const args = parse(argv, { values: ['duration', 'sec', 'grep'], flags: ['raw'], aliases: { s: 'duration' } });
+  const [ref] = need(args, 1, USAGE);
+  const sec = num(args.opts.duration || args.opts.sec, 20);
   const inst = await resolve.resolve(ref);
   const s = await cloud.getSession(inst.id, log);
   const needle = args.opts.grep || null;
@@ -36,4 +38,17 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'watch <实例> [--sec 20] [--raw] [--grep 词]' };
+module.exports = {
+  run,
+  usage: USAGE,
+  help: [
+    '选项:',
+    '  -s, --duration <秒>  看多久，默认 20',
+    '  --raw                打印原始事件 JSON',
+    '  --grep <词>          只显示 JSON 里含这个词的事件',
+    '',
+    '说明:',
+    '  连上去看实时事件流。session/load 会把整段历史重放一遍，默认跳过（只显示新事件）。',
+    '  这是"看一会儿"，不是常驻：到点自动断开。要持续保活用 keepalive。',
+  ],
+};

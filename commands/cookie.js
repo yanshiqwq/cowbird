@@ -60,4 +60,23 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'cookie [dump|export|check] [--out 文件]' };
+module.exports = {
+  run,
+  usage: 'cookie [dump|export|check] [--out <文件>]',
+  help: [
+    '子命令:',
+    '  dump     列出每条 cookie 的域名、剩余天数、httpOnly、长度（默认）',
+    '  check    真发一次请求，验证这份登录态现在还能不能用',
+    '  export   导出成 Playwright storageState（注意：UA 不在这个文件里）',
+    '',
+    '选项:',
+    '  --out <文件>   export 的落点，默认 $WB_CLOUD_HOME/storage-state.json',
+    '',
+    '说明:',
+    '  只读本地文件，除非用 check。要换登录态请用 `wbsbx login --import`，别手改 state.json。',
+    '',
+    '退出码:',
+    '  0  正常（check 时表示接口 200）',
+    '  1  没有登录态 / check 不通过',
+  ],
+};

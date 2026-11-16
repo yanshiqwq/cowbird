@@ -165,7 +165,7 @@ wbsbx keepalive work-01
 wbsbx keepalive work-01 --no-nudge
 
 # 催话间隔 5 分钟、最多催 10 次、跑 2 小时后自动退
-wbsbx keepalive work-01 --nudge 300 --max-nudges 10 --sec 7200
+wbsbx keepalive work-01 --nudge 300 --max-nudges 10 --duration 7200
 
 # 长期跑（Windows 计划任务 / Linux 同理）
 nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
@@ -250,7 +250,19 @@ lib/daemon/             守护进程：scheduler / heal / renew / server / 日�
 commands/               每个子命令一个文件
 docs/protocol.md        接口与协议细节（含踩过的坑）
 docs/architecture.md    client/daemon 分层与扩展点
+test/smoke.js           离线冒烟：纯逻辑，不联网、不需要登录态
+test/halfopen.js        半开连接回归：起本地假 ACP 服务端，实测静默失效
 ```
+
+## 开发
+
+```bash
+npm test          # 离线冒烟（29 项）：参数解析、cookie jar、401 不写盘、帧解析、keepalive 策略
+npm run test:net  # 半开连接回归（8 项）：要起本地 TCP 服务，约 20 秒
+```
+
+两套测试的分工：`smoke` 跑纯函数与可注入的桩，必须秒级；`halfopen` 专门打"看起来还连着、
+其实早已失效"的连接问题 —— 这类 bug 只能拿真 socket 复现，放进 `smoke` 会把日常测试拖慢。
 
 ## License
 

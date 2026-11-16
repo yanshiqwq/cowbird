@@ -13,13 +13,13 @@ const resolve = require('../lib/resolve');
 const { Keepalive } = require('../lib/keepalive');
 const log = require('../lib/log').log;
 
-const USAGE = 'keepalive <实例> [--nudge 60] [--max-nudges 0] [--question-timeout 0] [--stall 30] [--sec 0] [--no-nudge] [--prompt "文案"]';
+const USAGE = 'keepalive [--nudge <秒>] [--max-nudges <次>] [--stall <秒>] [--duration <秒>] [--no-nudge] [--prompt <文案>] <实例>';
 
 async function run(argv) {
   const args = parse(argv, {
     flags: ['no-nudge'],
-    values: ['nudge', 'max-nudges', 'question-timeout', 'sec', 'prompt', 'stall'],
-    aliases: { n: 'nudge', s: 'sec' },
+    values: ['nudge', 'max-nudges', 'question-timeout', 'stall', 'duration', 'sec', 'prompt'],
+    aliases: { n: 'nudge', s: 'duration' },
   });
   const [ref] = need(args, 1, USAGE);
   const k = cfg.readConfig().keepalive;
@@ -34,7 +34,7 @@ async function run(argv) {
     noNudge: !!args.opts['no-nudge'],
     log: (m) => log(`[${inst.name || inst.id}] ${m}`),
   };
-  const sec = num(args.opts.sec, 0);
+  const sec = num(args.opts.duration || args.opts.sec, 0);
 
   // 每次重连前重新取凭据：顺手把快过期的 token 刷掉（纯 HTTP，不需要浏览器）
   const reload = async () => {
@@ -68,4 +68,29 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: USAGE };
+module.exports = {
+  run,
+  usage: USAGE,
+  help: [
+    '选项:',
+    '  -n, --nudge <秒>             空闲多久催一次，默认 60',
+    '  --max-nudges <次>            催话次数上限，默认 0（不限）',
+    '  --question-timeout <秒>      挂起的提问多久后主动取消，默认 0（永不取消）',
+    '  --stall <秒>                 催话后这么久收不到任何字节就判定连接已死，默认 30',
+    '  -s, --duration <秒>          跑够这么久自动退出，默认 0（一直跑到 Ctrl-C）',
+    '  --no-nudge                   只连接、不催话（不留痕，用于验证链路）',
+    '  --prompt <文案>              催话内容',
+    '',
+    '说明:',
+    '  长驻进程。收到 AskUserQuestion 不回答，让那一轮一直挂着 —— 会话就停在 pending，',
+    '  平台不会把它当闲置回收。掉出这个状态时补一句催话让它重新提问。',
+    '',
+    '  催话会写进该会话的历史；不想留痕用 --no-nudge。',
+    '  断线自动重连：连接 20s 超时、单条 POST 15s 超时、催话后无响应 30s 判死；',
+    '  连续短连接按 5/10/20/40/60s 退避。',
+    '',
+    '退出码:',
+    '  0  正常退出（Ctrl-C 或 --duration 到期）',
+    '  1  取凭据失败',
+  ],
+};

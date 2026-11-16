@@ -11,7 +11,7 @@ const e2b = require('../lib/e2b');
 const resolve = require('../lib/resolve');
 const log = require('../lib/log').log;
 
-const USAGE = 'exec [--timeout 秒] [--json] <实例> <命令...>   或   exec <实例> -f 脚本.sh';
+const USAGE = 'exec [--timeout <秒>] [--json] <实例> <命令...>   或   exec <实例> -f <脚本>';
 
 async function run(argv) {
   const args = parse(argv, {
@@ -50,4 +50,24 @@ async function run(argv) {
   return r.code === 0 || r.code === null ? 0 : 1;
 }
 
-module.exports = { run, usage: USAGE };
+module.exports = {
+  run,
+  usage: USAGE,
+  stopAfter: 1,          // 第一个位置参数（实例）之后的一切都属于命令
+  help: [
+    '选项:',
+    '  --timeout <秒>   单次执行超时，默认 60',
+    '  -f, --file <路径>  执行本地脚本文件的内容（等价于把文件内容当命令发过去）',
+    '  --json           输出原始结果 {out,err,code}',
+    '  --quiet          不打印 [exit=N] 那行',
+    '',
+    '说明:',
+    '  选项必须写在实例前面 —— 实例之后的内容全部当作命令串，所以不用加引号。',
+    '  走 E2B 数据面，不经过 Agent，也不会写进对话历史。',
+    '',
+    '退出码:',
+    '  0   远端命令返回 0（或拿不到退出码，见下）',
+    '  1   远端命令返回非 0',
+    '  拿不到退出码按 0 处理：上行 end 帧是 proto3 JSON，成功时 exitCode 字段被省略。',
+  ],
+};

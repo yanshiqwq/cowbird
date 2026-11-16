@@ -97,4 +97,20 @@ function memText(mem, space) {
   return mem || '-';
 }
 
-module.exports = { run, usage: 'info <实例> [--api-only] [--json]' };
+module.exports = {
+  run,
+  usage: 'info <实例> [--api-only] [--json]',
+  help: [
+    '选项:',
+    '  --api-only   只看控制面信息，不进容器探活',
+    '  --json       输出 JSON',
+    '',
+    '说明:',
+    '  CPU 会分三行列：配额（cgroup）、可见（cpuset）、nproc。',
+    '  nproc 读的是亲和性而不是配额，共享宿主的池子里它会报满宿主的核数 —— 别拿它当配额。',
+    '',
+    '退出码:',
+    '  0  正常（--api-only 时只表示取到信息）',
+    '  1  探活失败',
+  ],
+};

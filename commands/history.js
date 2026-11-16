@@ -10,10 +10,12 @@ const { tap } = require('../lib/acp');
 const resolve = require('../lib/resolve');
 const log = require('../lib/log').log;
 
+const USAGE = 'history [--duration <秒>] [--out <目录>] [--json] <实例>';
+
 async function run(argv) {
-  const args = parse(argv, { values: ['sec', 'out'], flags: ['json'], aliases: { s: 'sec' } });
-  const [ref] = need(args, 1, 'history <实例> [--sec 12] [--out 目录]');
-  const sec = num(args.opts.sec, 12);
+  const args = parse(argv, { values: ['duration', 'sec', 'out'], flags: ['json'], aliases: { s: 'duration' } });
+  const [ref] = need(args, 1, USAGE);
+  const sec = num(args.opts.duration || args.opts.sec, 12);
   const inst = await resolve.resolve(ref);
   const s = await cloud.getSession(inst.id, log);
 
@@ -62,4 +64,18 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'history <实例> [--sec 12] [--out 目录]' };
+module.exports = {
+  run,
+  usage: USAGE,
+  help: [
+    '选项:',
+    '  -s, --duration <秒>  抓多少秒，默认 12',
+    '  --out <目录>         落盘目录，默认数据目录',
+    '  --json               只打印结果路径',
+    '',
+    '说明:',
+    '  历史没有查询接口，只能靠 session/load 的整段重放，所以是"抓一段时间的流"再整理，',
+    '  不是"翻页查询"。会话特别长时，--duration 给少了会截断 —— 输出里的「事件 N 个」就是实际收到的。',
+    '  产物两个文件：history-<id>.jsonl（原始事件）与 history-<id>.txt（可读摘要）。',
+  ],
+};

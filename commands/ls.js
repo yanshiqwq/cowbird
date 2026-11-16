@@ -37,4 +37,17 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'ls [--refresh] [--json] [--all]' };
+module.exports = {
+  run,
+  usage: 'ls [--refresh] [--all] [--json]',
+  help: [
+    '选项:',
+    '  -r, --refresh   强制联网拉一次（默认优先用本地缓存）',
+    '  --all           连已归档、以及只剩本地凭据的会话一起列出来',
+    '  --json          输出 JSON',
+    '',
+    '说明:',
+    '  联网失败时会退回本地缓存，并在 stderr 打一行警告 —— 表里的数据可能是旧的。',
+    '  凭据剩余一列读的是本地 token 缓存，显示「无缓存」表示还没为这个实例取过凭据。',
+  ],
+};

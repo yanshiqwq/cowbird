@@ -31,10 +31,13 @@ for (const [name, def] of Object.entries(COMMANDS)) {
   for (const a of [name, ...(def.alias || [])]) ALIAS[a] = name;
 }
 
-// 全局开关：在命令分发之前就把它们摘掉，免得每个命令都要认一遍
+// 全局开关：只从**命令名之前**摘取。
+// 这一点很关键 —— 原先把整条 argv 都扫一遍，`wbsbx exec 01 curl --token x` 里的 --token
+// 会被当成全局开关吃掉。跟 docker/gh 一致：全局开关写在命令前。
 function extractGlobals(argv) {
   const out = [];
-  for (let i = 0; i < argv.length; i++) {
+  let i = 0;
+  for (; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--local') { process.env.WBSBX_LOCAL = '1'; continue; }
     if (a === '--remote') { process.env.WBSBX_DAEMON_URL = argv[++i]; continue; }
@@ -42,52 +45,58 @@ function extractGlobals(argv) {
     if (a.startsWith('--token=')) { process.env.WBSBX_DAEMON_TOKEN = a.slice(8); continue; }
     if (a === '--token') { process.env.WBSBX_DAEMON_TOKEN = argv[++i]; continue; }
     out.push(a);
+    break;                       // 遇到命令名，后面的原样保留
   }
+  for (let j = i + 1; j < argv.length; j++) out.push(argv[j]);
   return out;
 }
 
 function help() {
   const cmdRows = [
-    ['ls', '列实例（状态 / 最近活动 / 凭据剩余）'],
-    ['info', '单个实例详情：配额、内存、uptime'],
-    ['create', '新建实例（会话即容器）'],
-    ['rm', '删除（默认 dry-run，--yes 才真删）'],
-    ['rename', '改名'],
+    ['ls', '列实例：状态、最近活动、凭据剩余'],
+    ['info', '单个实例详情：CPU 配额、内存、uptime'],
+    ['create', '新建实例（一个会话就是一个容器）'],
+    ['rm', '删除/归档（默认 dry-run，加 --yes 才执行）'],
+    ['rename', '改实例名（会话标题）'],
     ['exec', '在实例里跑命令（不经 Agent，不进对话）'],
-    ['put / get', '传文件进去 / 取文件出来'],
-    ['history', '拉对话历史'],
-    ['watch', '连上去看一会儿输出'],
-    ['prompt', '给会话发一句话'],
-    ['keepalive', '把会话钉在「等回答」上（长驻，防闲置回收）'],
+    ['put', '把本地文件传进实例'],
+    ['get', '把实例里的文件取出来'],
+    ['history', '导出对话历史'],
+    ['watch', '连着看一会儿输出'],
+    ['prompt', '以用户口吻给会话发一条消息'],
+    ['keepalive', '长驻：把会话钉在「等回答」上，防闲置回收'],
     ['login', '扫码登录（唯一需要浏览器的一步）'],
-    ['cookie', '查/测登录态'],
-    ['doctor', '体检：登录态 / 接口 / 实例 / 凭据 / daemon'],
+    ['cookie', '查看/导出/实测登录态'],
+    ['doctor', '体检：登录态、接口、实例、凭据、daemon'],
     ['daemon', '常驻进程：保活、刷 token、续登录态'],
   ];
-  console.log(ui.c.bold(`wbsbx v${pkg.version}`) + ui.c.dim('  —  WorkBuddy 云沙箱管理器'));
-  console.log('\n' + ui.c.bold('用法') + ':  wbsbx <命令> [参数]');
-  console.log('\n' + ui.table(['命令', '作用'], cmdRows));
+  console.log(ui.c.bold(`wbsbx ${pkg.version}`) + ui.c.dim(' · WorkBuddy 云沙箱管理器'));
+  console.log('\n' + ui.c.bold('用法') + ':  wbsbx <命令> [选项] [参数]');
+  console.log('\n' + ui.table(['命令', '说明'], cmdRows));
 
   console.log(`
-${ui.c.bold('实例引用')}  id（2120000000000000000） / 名字（work-01） / 短序号（01）
+${ui.c.bold('实例引用')}
+  以下三种写法等价：完整 id（2120000000000000000）、会话名（work-01）、短序号（01）
 
-${ui.c.bold('常驻（让实例活着）')}
-  wbsbx daemon start --detach    后台起一个，之后关掉电脑也不影响
-  wbsbx daemon targets add 01    把 01 加进保活名单
-  wbsbx daemon status            看它到底在干嘛
+${ui.c.bold('常用')}
+  wbsbx login                             扫码登录，之后全走纯 HTTP
+  wbsbx ls                                看有哪些实例
+  wbsbx exec 01 ls -la                    实例之后的内容全部当命令
+  wbsbx daemon start --detach             后台起 daemon，关掉终端也不影响
+  wbsbx daemon targets add 01             把 01 加进保活名单
 
 ${ui.c.bold('全局开关')}
-  --local                 这次不走 daemon，直接用本地凭据
-  --remote <url>          这次改用另一台机器上的 daemon
+  写在命令之前，例如 wbsbx --local ls
+  --local                 这一次不走 daemon，直接用本地凭据
+  --remote <地址>         这一次改用另一台机器上的 daemon
   --token <令牌>          配合 --remote
 
 ${ui.c.bold('环境变量')}
   WB_CLOUD_HOME           数据目录（默认 ~/.wbsbx）
-  WBSBX_DAEMON_URL        等于 --remote
-  WBSBX_DAEMON_TOKEN      等于 --token
-
-${ui.c.dim('运营在别人的平台上，容器随时可能被回收：保活靠 daemon 定期访问，登录态靠它续期。')}
+  WBSBX_DAEMON_URL        等同于 --remote
+  WBSBX_DAEMON_TOKEN      等同于 --token
 `);
+  console.log(ui.c.dim('运行 `wbsbx <命令> --help` 查看该命令的选项与退出码。'));
   return 0;
 }
 
@@ -101,8 +110,7 @@ async function main() {
 
   const name = ALIAS[argv[0]];
   if (!name) {
-    console.error(ui.c.red(`未知命令：${argv[0]}`));
-    help();
+    console.error(ui.c.red(`未知命令：${argv[0]}`) + ui.c.dim('（运行 wbsbx --help 看可用命令）'));
     return 2;
   }
   const def = COMMANDS[name];
@@ -110,9 +118,20 @@ async function main() {
   if (Array.isArray(mod)) mod = mod[def.pick || 0];
 
   const rest = argv.slice(1);
-  if (rest.includes('--help') || rest.includes('-h')) {
-    console.log(`用法: wbsbx ${mod.usage}`);
-    return 0;
+  const hi = rest.findIndex((a) => a === '--help' || a === '-h');
+  if (hi >= 0) {
+    // 对 exec/prompt 这类「实例之后全是命令」的子命令，只有写在实例之前的 --help 才算要看帮助；
+    // 否则 `wbsbx exec 01 ls -h` 会被误当成"看帮助"，而用户其实想让远端跑 ls -h。
+    let show = true;
+    if (mod.stopAfter) {
+      const firstPos = rest.findIndex((a) => !a.startsWith('-'));
+      show = firstPos === -1 || hi < firstPos;
+    }
+    if (show) {
+      console.log(`用法: wbsbx ${mod.usage}`);
+      if (Array.isArray(mod.help) && mod.help.length) console.log('\n' + mod.help.join('\n'));
+      return 0;
+    }
   }
   return (await mod.run(rest)) || 0;
 }

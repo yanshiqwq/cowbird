@@ -30,9 +30,9 @@ async function grab(ctx, page) {
 }
 
 async function run(argv) {
-  const args = parse(argv, { flags: ['import'], values: ['max-min'], aliases: { m: 'max-min' } });
+  const args = parse(argv, { flags: ['import'], values: ['max-wait', 'max-min'], aliases: { m: 'max-wait' } });
   const IMPORT = !!args.opts.import;
-  const MAX_MIN = num(args.opts['max-min'], Number(process.env.LOGIN_MAX_MIN) || 20);
+  const MAX_MIN = num(args.opts['max-wait'] || args.opts['max-min'], Number(process.env.LOGIN_MAX_MIN) || 20);
 
   process.on('unhandledRejection', (e) => log('warn ' + String(e).slice(0, 160)));
   process.on('uncaughtException', (e) => log('warn ' + String(e).slice(0, 160)));
@@ -79,4 +79,22 @@ async function run(argv) {
   return 1;
 }
 
-module.exports = { run, usage: 'login [--import] [--max-min 20]' };
+module.exports = {
+  run,
+  usage: 'login [--import] [--max-wait <分钟>]',
+  help: [
+    '选项:',
+    '  --import               不弹窗，从已有浏览器 profile 静默导入（已登录时有效）',
+    '  -m, --max-wait <分钟>  扫码等待上限，默认 20',
+    '',
+    '说明:',
+    '  唯一需要浏览器的命令，其余全部走纯 HTTP。',
+    '  找不到 Edge/Chromium 时用环境变量 WBSBX_BROWSER 指定可执行文件路径。',
+    '  登录时的 User-Agent 会一起存进 state.json —— 服务端把会话跟 UA 精确绑定，',
+    '  改一个字符就 401，所以别手动编辑这个文件。',
+    '',
+    '退出码:',
+    '  0  登录成功（或导入成功）',
+    '  1  超时 / 未取得登录态',
+  ],
+};

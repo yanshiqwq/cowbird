@@ -13,4 +13,12 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'rename <实例> <新名字>' };
+module.exports = {
+  run,
+  usage: 'rename <实例> <新名字>',
+  help: [
+    '说明:',
+    '  改的是会话标题，不是容器主机名。改名是异步的 —— 紧接着 ls 可能还看到旧名字，',
+    '  列表缓存会保留旧值，下次刷新才对上。',
+  ],
+};

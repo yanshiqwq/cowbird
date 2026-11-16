@@ -298,4 +298,23 @@ async function run(argv) {
   }
 }
 
-module.exports = { run, usage: 'daemon <start|stop|status|logs|targets|pair|heal|refresh|renew|install>' };
+module.exports = {
+  run,
+  usage: 'daemon <start|stop|restart|status|logs|targets|pair|heal|refresh|renew|install>',
+  help: [
+    '子命令:',
+    '  start [--detach]        启动（--detach 后台跑）',
+    '  stop                    停止',
+    '  restart                 重启',
+    '  status [--json]         运行状态、各轮结果、登录态剩余',
+    '  logs [-n <行数>] [-f]   看日志，-f 跟踪',
+    '  targets [ls|add|rm]     看/改保活目标（add 01 02 支持短序号）',
+    '  pair <地址> [--token <令牌>]  连远程 daemon',
+    '  heal | refresh | renew  立即跑一轮',
+    '  install [--write]       生成 systemd / 计划任务的配置（只打印，--write 才落盘）',
+    '',
+    '说明:',
+    '  daemon 只管三件事：heal 保活、refresh 刷 token、renew 续登录态。',
+    '  keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `wbsbx keepalive --help`。',
+  ],
+};

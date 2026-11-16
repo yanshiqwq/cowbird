@@ -136,4 +136,20 @@ async function run(argv) {
   return bad ? 1 : 0;
 }
 
-module.exports = { run, usage: 'doctor [--no-net] [--json]' };
+module.exports = {
+  run,
+  usage: 'doctor [--no-net] [--json]',
+  help: [
+    '选项:',
+    '  --no-net   不联网（只看本地登录态与缓存）',
+    '  --json     输出 JSON',
+    '',
+    '说明:',
+    '  按依赖顺序体检：node → 数据目录 → 登录态 → 接口 → 实例/凭据 → daemon → 浏览器。',
+    '  「接口」一项会真发一次请求（--no-net 时跳过），所以能区分「cookie 过期」和「UA 不匹配」。',
+    '',
+    '退出码:',
+    '  0  没有异常项（警告不影响退出码）',
+    '  1  存在异常项',
+  ],
+};

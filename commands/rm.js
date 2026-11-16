@@ -29,4 +29,20 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: 'rm <实例> [--archive] [--yes]' };
+module.exports = {
+  run,
+  usage: 'rm <实例> [--archive] [--yes]',
+  help: [
+    '选项:',
+    '  --archive   归档而不是删除',
+    '  -y, --yes   真的执行（默认只打印将要做什么）',
+    '',
+    '说明:',
+    '  默认 dry-run，不碰云端；确认无误后再加 --yes。',
+    '  删除会连同容器里的数据一起没，不可恢复。',
+    '',
+    '退出码:',
+    '  0  dry-run 结束 或 已执行',
+    '  1  执行失败',
+  ],
+};

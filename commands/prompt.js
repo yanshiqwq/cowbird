@@ -10,7 +10,7 @@ const resolve = require('../lib/resolve');
 const log = require('../lib/log').log;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const USAGE = 'prompt [--wait 秒] [--raw] <实例> <文本...>';
+const USAGE = 'prompt [--wait <秒>] [--raw] <实例> <文本...>';
 
 async function run(argv) {
   const args = parse(argv, { values: ['wait', 'grep'], flags: ['raw'], aliases: { w: 'wait' }, stopAfter: 1 });
@@ -42,4 +42,19 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = { run, usage: USAGE };
+module.exports = {
+  run,
+  usage: USAGE,
+  stopAfter: 1,          // 第一个位置参数（实例）之后的一切都属于消息正文
+  help: [
+    '选项:',
+    '  -w, --wait <秒>   发完观察多久，默认 15',
+    '  --raw             打印原始事件 JSON',
+    '  --grep <词>       配 --raw 用，只显示含该词的事件',
+    '',
+    '说明:',
+    '  以"用户发言"的身份发一条消息，会写进对话历史、并触发 agent 干活。',
+    '  实例之后的内容全部当文本，不用加引号。',
+    '  只是想让会话别闲着、又不想留下痕迹的话，用 exec（不进对话）或 keepalive --no-nudge。',
+  ],
+};
