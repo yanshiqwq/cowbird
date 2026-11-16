@@ -176,6 +176,19 @@ nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
 ⚠ 三个前提：① 那个 agent 会**永远停在那句提问上**，别对还要继续干活的会话开；
 ② 催话文案可配（`--prompt`），它在替你对 agent 说话；③ 一个 keepalive 占一条长连接。
 
+服务器上跑（不需要宿主机装 node，借现成镜像即可）：
+
+```bash
+docker run -d --name wbsbx-keepalive-01 --restart unless-stopped -u 1000:1000 \
+  -v /srv/wbsbx:/opt/wbsbx:ro -v /srv/wbsbx-data:/data \
+  -e WB_CLOUD_HOME=/data -e WBSBX_LOCAL=1 \
+  --entrypoint node <有 node 的镜像> \
+  /opt/wbsbx/bin/wbsbx.js keepalive <实例id> --nudge 300
+```
+
+`/srv/wbsbx-data` 里只需要两样：`state.json`（cookie + **UA**）和 `tokens/`。
+从旧部署迁移时照着拷过去即可 —— 但 UA 必须是从原登录环境拿到的那个字符串，随便填会全 401。
+
 配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
 凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
 
@@ -187,7 +200,7 @@ TCP 半开）。这时候 socket 还开着、`reader.read()` 永远不返回，�
 | 情况 | 处理 |
 |---|---|
 | bootstrap 迟迟不给响应头 | `connectTimeoutMs`（20s）后放弃重试 —— 否则 fetch 会永远挂着 |
-| 单条 POST 挂住 | `postTimeoutMs`（15s）超时 |
+| 单条 POST 挂住 | `postTimeoutMs`（60s）超时 |
 | 催话后一个字节都收不到 | `stallAfterNudgeSec`（30s）后判定连接已死，主动断开重连 |
 | 连续 3 次发送失败 | 主动断开重连，计数器归零 |
 

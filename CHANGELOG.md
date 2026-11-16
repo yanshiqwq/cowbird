@@ -10,7 +10,7 @@
 - `wbsbx keepalive <实例>`：把会话钉在「等用户回答」上。收到 `AskUserQuestion` 不回答，
   那一轮就一直挂着，会话停在 pending —— 平台不会把它当闲置回收。掉出该状态时补一句催话。
   与 daemon 的 `heal`（每 10 分钟一次 E2B exec）是两件事，不互斥。
-  - 断线处理：连接 20s 超时、单条 POST 15s 超时、催话后无响应 30s 判死；连续短连接按
+  - 断线处理：连接 20s 超时、单条 POST 60s 超时、催话后无响应 30s 判死；连续短连接按
     5/10/20/40/60s 退避。
   - `--no-nudge` 只连接不催话（不留痕）；`--max-nudges` / `--duration` 控制边界。
 - `test/halfopen.js`（`npm run test:net`）：起本地假 ACP 服务端，复现五种"看起来还连着"
