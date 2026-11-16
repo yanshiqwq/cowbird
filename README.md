@@ -196,6 +196,17 @@ nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
 ⚠ 三个前提：① 那个 agent 会**永远停在那句提问上**，别对还要继续干活的会话开；
 ② 催话文案可配（`--prompt`），它在替你对 agent 说话；③ 一个 keepalive 占一条长连接。
 
+状态日志长这样，每 60 秒一行：
+
+```
+状态 平台=pending/pending sse=working busy=true 挂起=1 静默=59s 催=0 conn=up
+```
+
+- `平台=` 来自控制面（跟 `wbsbx ls --refresh` 同一个取法），是**权威值**
+- `sse=` 是最后一条事件里的 status，连着十几小时没事件时它会停住不动 —— 以平台为准
+- 平台自己说 `pending` 时**不会补催**：那说明服务端还挂着提问，本地 `挂起=0` 多半只是
+  重连时重放没把提问请求带回来
+
 服务器上跑（不需要宿主机装 node，借现成镜像即可）：
 
 ```bash

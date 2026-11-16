@@ -32,6 +32,11 @@ async function run(argv) {
     stallAfterNudgeSec: num(args.opts.stall, k.stallAfterNudgeSec),
     prompt: args.opts.prompt || k.prompt,
     noNudge: !!args.opts['no-nudge'],
+    // 日志里的状态以控制面为准，跟 `wbsbx ls --refresh` 同一个取法
+    probeStatus: async () => {
+      const d = await cloud.getConversation(inst.id);
+      return { status: d.status, sessionStatus: d.sessionStatus, updatedAt: d.updatedAt };
+    },
     log: (m) => log(`[${inst.name || inst.id}] ${m}`),
   };
   const sec = num(args.opts.duration || args.opts.sec, 0);

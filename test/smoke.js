@@ -364,6 +364,41 @@ function frame(obj) {
     assert.strictEqual(r.results[0].attempt, 2);
   });
 
+  await okAsync('日志里的状态以控制面为准（同 ls --refresh 取法）', async () => {
+    const lines = [];
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' }, {
+      nudgeSec: 9999, probeMs: 0, logEveryMs: 0,
+      probeStatus: async () => ({ status: 'pending', sessionStatus: 'pending' }),
+      log: (m) => lines.push(m),
+    });
+    kp._acp = { lastByteAt: 0, post: async () => ({ status: 200, text: '' }), close: () => {} };
+    kp.state.connected = true;
+    await kp.tick();
+    assert.ok(lines.some((l) => /平台=pending\/pending/.test(l)), '应带上平台状态：' + lines.join(' | '));
+    assert.ok(lines.some((l) => /sse=/.test(l)), 'SSE 侧的值也要保留，方便看是否陈旧');
+  });
+  await okAsync('控制面取不到时降级成 平台=?，不抛错', async () => {
+    const lines = [];
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' }, {
+      nudgeSec: 9999, probeMs: 0, logEveryMs: 0,
+      probeStatus: async () => { throw new Error('boom'); },
+      log: (m) => lines.push(m),
+    });
+    kp._acp = { lastByteAt: 0, post: async () => ({ status: 200, text: '' }), close: () => {} };
+    kp.state.connected = true;
+    await kp.tick();
+    assert.ok(lines.some((l) => /平台=\?\(boom\)/.test(l)), lines.join(' | '));
+  });
+
+  await okAsync('平台说 pending 时不补催（重放没带回提问的兜底）', async () => {
+    const { kp, calls } = mkKp({ nudgeSec: 0 });
+    kp.opts.probeMs = 0;
+    kp.opts.probeStatus = async () => ({ status: 'pending', sessionStatus: 'pending' });
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(calls.length, 0, '平台已经钉住了，不该再往历史里写');
+  });
+
   // 收尾
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   console.log(`\n${fail ? '\u2717' : '\u2713'} ${pass} 通过${fail ? '，' + fail + ' 失败' : ''}\n`);
