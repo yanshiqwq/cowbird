@@ -1,5 +1,8 @@
 # wbsbx
 
+> **非官方项目。** 用你自己的账号登录、只管你自己的实例，不自带任何凭据、不做提权、不绕过计费。
+> 使用的是该服务的网页接口，**可能违反其服务条款**，风险自负。详见 [DISCLAIMER.md](DISCLAIMER.md)。
+
 WorkBuddy 云沙箱管理器。分两半：
 
 - **`wbsbx`（客户端）** —— 列实例、建删改、在容器里直接跑命令、收发文件、看对话历史。纯 CLI，不常驻。
@@ -29,12 +32,15 @@ CLI 和 daemon 共享同一个数据目录，但**谁都不依赖谁**：daemon 
 
 ## 安装
 
-```bash
-# 不安装，直接用
-npx wbsbx ls
+**还没发到 npm**，目前只有源码安装：
 
-# 装成全局命令
-npm i -g wbsbx
+```bash
+git clone https://github.com/yanshiqwq/wbsbx.git
+cd wbsbx
+node bin/wbsbx.js --help          # 不安装，直接用
+
+# 想当全局命令用
+npm link                          # 或者 npm i -g .
 
 # 或者跑容器（推荐给服务器）
 docker compose up -d
@@ -86,11 +92,11 @@ wbsbx daemon status
 | `create <名字>` | 新建实例（= 新会话 + 新容器） |
 | `rm <实例> [--yes]` | 删除，默认 dry-run |
 | `rename <实例> <新名字>` | 改名 |
-| `exec <实例> "<命令>"` | 在容器里执行，退出码透传 |
+| `exec [--timeout 秒] <实例> <命令...>` | 在容器里执行，退出码透传。实例之后全归命令，`exec 01 ls -la` 不用加引号 |
 | `put` / `get` | 传文件进出（分块 base64，不需要额外通道） |
 | `history <实例>` | 拉对话历史到本地 |
 | `watch <实例>` | 连上去看一会儿输出 |
-| `prompt <实例> "..."` | 给会话发一句话 |
+| `prompt <实例> <文本...>` | 给会话发一句话（同样：实例之后全是文本） |
 | `login [--import]` | 扫码登录 / 从现有浏览器导入 |
 | `cookie [dump\|check\|export]` | 看登录态、实测可用性 |
 | `doctor` | 体检：数据目录 / 登录态 / 接口 / 实例 / daemon |
@@ -163,11 +169,12 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 
 **成功时没有 exitCode。** E2B 的 end 帧是 proto3 JSON，成功时 `exitCode` 字段被省略。见到 end 而没写退出码 ⇒ 就是 0。
 
-**数据目录会沿用旧的。** 如果只有 `~/.workbuddy/wb-cloud` 存在，程序会自动用它（老用户的凭据不用搬）。想换到 `~/.wbsbx`，把 `state.json` 和 `tokens/` 拷过去即可。
+**登录态写盘前会留上一版。** 每次覆盖 `state.json` 都会把上一份存成 `state.json.last-good`。滚动刷新写坏或误清空时，`cp $WB_CLOUD_HOME/state.json.last-good $WB_CLOUD_HOME/state.json` 就能回到上一份可用凭据。
 
 ## 安全
 
 - 凭据（cookie、UA、token）全部落本地 `$WB_CLOUD_HOME`，权限 600，不上传任何地方。
+- **本项目不是官方客户端**，见 [DISCLAIMER.md](DISCLAIMER.md)。
 - daemon 默认只听 `127.0.0.1`。跨机用请走 SSH 隧道或反代 + 令牌，别把 8787 直接暴露到公网。
 - `login` 是唯一会打开浏览器窗口的动作，登录完就关。
 - 这个工具做的事等于「你自己在控制台点来点去」，没有提权，也没有绕过任何权限。

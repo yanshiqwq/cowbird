@@ -40,16 +40,16 @@ baseURL `https://www.workbuddy.cn`，鉴权是**登录 cookie + 登录时的 UA*
 | 项目列表 | `GET /console/as/projects` | |
 | 额度 | `GET /console/user/cloudagent/entitlement` | 个人号 403 |
 
-创建只认 `prompt` + `model`（App 默认模型是 `deepseek-r1`，实际库里都是 `deepseek-v4.1-flash`），**名字不在创建参数里**，必须建完再 `{title}` 改一次。
-App 建会话时还会塞 `plugins:[{name:'weixinpay',marketplace:'codebuddy-builtin'}]`，不传也能建成功。
+创建只认 `prompt` + `model`，**名字不在创建参数里**，必须建完再用 `{title}` 改一次。
+客户端建会话时还会塞一个内置插件声明，不传也能建成功。
 
-- ❌ `/v2/user/cloudagent/conversations`、`/v2/as/conversations/{id}/session` 是 **app.asar 里的旧路径**，网页登录态打过去仍 401。以 `/console/as/…` 为准。
+- ❌ 客户端包里那几条 `/v2/...` 旧路径，网页登录态打过去仍 401。以 `/console/as/…` 为准。
 - ❌ `.../messages`、`/events`、`/history` 全 404 —— **历史不走接口，在 ACP 里重放**。
 - `platform` 取值只有 `admin`（企业控制台）和 `agents`（个人号）。
 
 ## 二、ACP 握手
 
-`link = https://<port>-<convId>.workbuddy.agentos-worker.net/acp`，`token` 是 HS256 JWT（`aud=sandbox-gateway`、`exp-iat=259200` 即 3 天、`is_admin:true`）。
+`link = https://<port>-<convId>.workbuddy.agentos-worker.net/acp`，`token` 是 HS256 JWT（`aud=sandbox-gateway`、有效期 3 天）。
 
 ```
 ① POST {link}/bootstrap   headers: Bearer
@@ -99,7 +99,7 @@ bootstrap body 照抄这个结构：
 
 **关键：默认 5 分钟超时是客户端 `setTimeout`（`3e5` ms），服务端不计时。** 客户端不回应，这条提问就永远挂着 —— 「永不回答」不需要额外手段，只要别回。
 
-## 五、从 app.asar 挖到的常量（`F:\Program Files\WorkBuddy\resources\app.asar`）
+## 五、从客户端包里挖到的常量（`<安装目录>/resources/app.asar`）
 
 ```
 session/request_permission      _codebuddy.ai/question      elicitation/create
@@ -108,6 +108,8 @@ _codebuddy.ai/resolveInterruption   _codebuddy.ai/interaction_timeout
 响应头 `Acp-Connection-Id` 缺失时报 `{"error":"Acp-Connection-Id required"}`（400）。
 旧版尝试里 `GET /acp` 直接返回 `text/event-stream` 但不给 connection id，所以必须走 `/acp/bootstrap`。
 
-## 六、相关记忆
+## 六、排查建议
 
-`<workspace>/.workbuddy/memory/topics/workbuddy-cloud-sessions.md`（本 skill 的前身笔记）、`pitfalls.md` §39（长命进程必须用计划任务）。
+遇到 401 先怀疑 **UA 不匹配**，其次才是 cookie 过期：这两件事的响应体不一样，前者是默认的
+nginx 401 页，后者是业务 JSON（`invalid_token` + `session expired or invalid`）。
+长命进程（daemon）在 Windows 上必须挂在计划任务里，否则注销就没了。
