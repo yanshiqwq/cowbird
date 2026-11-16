@@ -97,6 +97,7 @@ wbsbx daemon status
 | `history <实例>` | 拉对话历史到本地 |
 | `watch <实例>` | 连上去看一会儿输出 |
 | `prompt <实例> <文本...>` | 给会话发一句话（同样：实例之后全是文本） |
+| `keepalive <实例>` | 长驻：把会话钉在「等回答」上，防闲置回收 |
 | `login [--import]` | 扫码登录 / 从现有浏览器导入 |
 | `cookie [dump\|check\|export]` | 看登录态、实测可用性 |
 | `doctor` | 体检：数据目录 / 登录态 / 接口 / 实例 / daemon |
@@ -140,6 +141,41 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 ```
 
 配置在 `$WB_CLOUD_HOME/wbsbx.json`（默认 `~/.wbsbx/wbsbx.json`）。改完不用重启，下一轮就生效。
+
+## keepalive —— 另一种续命方式
+
+`heal` 和 `keepalive` 解决的不是同一件事，**两个都要**：
+
+| | `heal`（daemon 里） | `keepalive`（独立长驻） |
+|---|---|---|
+| 手段 | 每 10 分钟一次 E2B exec | 维持一条 ACP 长连接 + 挂着的提问 |
+| 成本 | 一次 API 调用，几百毫秒 | 一条常驻 SSE + 每秒一次本地 tick |
+| 留痕 | **不进对话历史** | 催话会写进该会话的历史 |
+| 作用 | 让平台看到"有人在访问"，不被回收 | 让会话状态停在 `pending`/`working` |
+
+原理：agent 发出 `AskUserQuestion` 之后这一轮会一直等客户端回答，而**服务端不计时**
+（默认 5 分钟超时是客户端本地 `setTimeout`）。所以连上去、收到提问不回，会话就钉在那儿了。
+掉出这个状态时会补一句催话让它重新提问。
+
+```bash
+# 前台跑，Ctrl-C 结束
+wbsbx keepalive work-01
+
+# 只观察不催话（验证链路用，不留痕）
+wbsbx keepalive work-01 --no-nudge
+
+# 催话间隔 5 分钟、最多催 10 次、跑 2 小时后自动退
+wbsbx keepalive work-01 --nudge 300 --max-nudges 10 --sec 7200
+
+# 长期跑（Windows 计划任务 / Linux 同理）
+nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
+```
+
+⚠ 三个前提：① 那个 agent 会**永远停在那句提问上**，别对还要继续干活的会话开；
+② 催话文案可配（`--prompt`），它在替你对 agent 说话；③ 一个 keepalive 占一条长连接。
+
+配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `leadMs` / `prompt`。
+凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
 
 ## HTTP 接口
 
@@ -189,6 +225,7 @@ lib/creds.js            凭据门面：daemon 优先、本地兜底
 lib/cloud.js            控制面接口（/console/as/*）
 lib/e2b.js              数据面（exec / put / get，5 字节帧）
 lib/acp.js              ACP 客户端（对话历史 / watch / prompt）
+lib/keepalive.js        长驻保活：连接循环 + 挂起提问 + 催话
 lib/api.js              daemon 的 HTTP 客户端
 lib/daemon/             守护进程：scheduler / heal / renew / server / 日志
 commands/               每个子命令一个文件

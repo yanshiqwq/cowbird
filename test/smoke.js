@@ -23,6 +23,7 @@ const creds = require('../lib/creds');
 const session = require('../lib/session');
 const e2b = require('../lib/e2b');
 const resolve = require('../lib/resolve');
+const { Keepalive } = require('../lib/keepalive');
 
 let pass = 0;
 let fail = 0;
@@ -153,6 +154,80 @@ function frame(obj) {
   ok('WB_CLOUD_HOME 覆盖数据目录', () => {
     assert.strictEqual(cfg.HOME, TMP);
     assert.strictEqual(cfg.PATHS.state, path.join(TMP, 'state.json'));
+  });
+
+  console.log('\nkeepalive 策略');
+  function mkKp(over) {
+    const calls = [];
+    const kp = new Keepalive({ sessionId: 's1', token: 't', link: 'https://x' }, { log: () => {}, ...over });
+    kp._acp = { post: async (b) => { calls.push(b); return { status: 200, text: '' }; } };
+    kp.state.connected = true;
+    return { kp, calls };
+  }
+  const QMSG = (id) => ({ id, method: '_codebuddy.ai/question', params: { schema: { questions: [{ header: 'h', options: [{ label: 'A' }, { label: 'B' }] }] } } });
+
+  ok('收到提问：登记但不回答（保活的核心）', () => {
+    const { kp, calls } = mkKp();
+    kp.onServerRequest(QMSG(7));
+    assert.ok(kp.state.pending.has(7));
+    assert.strictEqual(calls.length, 0, '绝不能回，回了就等于替用户作答');
+  });
+  ok('重连重放的同一提问不重复登记', () => {
+    const { kp } = mkKp();
+    kp.onServerRequest(QMSG(7));
+    kp.onServerRequest(QMSG(7));
+    assert.strictEqual(kp.state.pending.size, 1);
+  });
+  ok('权限请求同样不回应', () => {
+    const { kp, calls } = mkKp();
+    kp.onServerRequest({ id: 9, method: 'session/request_permission', params: {} });
+    assert.strictEqual(calls.length, 0);
+  });
+  ok('endTurn 清空挂起（否则变成永远不催的僵尸）', () => {
+    const { kp } = mkKp();
+    kp.onServerRequest(QMSG(7));
+    kp.onEvent({ method: 'session/endTurn' });
+    assert.strictEqual(kp.state.pending.size, 0);
+    assert.strictEqual(kp.state.busy, false);
+  });
+  ok('状态 completed 也清空挂起', () => {
+    const { kp } = mkKp();
+    kp.onServerRequest(QMSG(7));
+    kp.onEvent({ method: 'session/update', params: { update: { _meta: { 'codebuddy.ai': { status: 'completed' } } } } });
+    assert.strictEqual(kp.state.pending.size, 0);
+  });
+  ok('服务端说超时也清空', () => {
+    const { kp } = mkKp();
+    kp.onServerRequest(QMSG(7));
+    kp.onEvent({ method: '_codebuddy.ai/interaction_timeout', params: { id: 7 } });
+    assert.strictEqual(kp.state.pending.size, 0);
+  });
+  ok('历史重放不算「正在干活」', () => {
+    const { kp } = mkKp();
+    kp.onEvent({ method: 'session/update', params: { update: { sessionUpdate: 'agent_message_chunk', _meta: { 'codebuddy.ai': { mode: 'history' } } } } });
+    assert.strictEqual(kp.state.busy, false);
+  });
+  await okAsync('空闲时发催话，且文案可配', async () => {
+    const { kp, calls } = mkKp({ nudgeSec: 0, prompt: 'PLEASE-ASK' });
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].method, 'session/prompt');
+    assert.strictEqual(calls[0].params.prompt[0].text, 'PLEASE-ASK');
+  });
+  await okAsync('maxNudges 到顶后不再催', async () => {
+    const { kp, calls } = mkKp({ nudgeSec: 0, maxNudges: 1 });
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(calls.length, 1);
+  });
+  await okAsync('noNudge 只观察不动手', async () => {
+    const { kp, calls } = mkKp({ nudgeSec: 0, noNudge: true });
+    kp._lastNudgeAt = 0;
+    await kp.tick();
+    assert.strictEqual(calls.length, 0);
   });
 
   // 收尾
