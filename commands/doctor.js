@@ -85,6 +85,24 @@ async function checkSessions(allowNet, st) {
 }
 
 // daemon 挂了不会让 CLI 瘫痪，但会让实例没人访问 —— 这是「慢慢被回收」的开端，必须让用户看见。
+// 目标配了 script 却读不到文件，是"十轮之后才发现"的那种错 —— 放在体检里当场暴露。
+function checkHealTargets() {
+  const c = cfg.readConfig();
+  const list = c.heal.targets || [];
+  if (!list.length) { add('info', '保活目标', '未配置（heal 不会做任何事）'); return; }
+  const missing = [];
+  let withScript = 0;
+  for (const t of list) {
+    if (!t.script) continue;
+    withScript++;
+    const p = path.isAbsolute(t.script) ? t.script : path.resolve(c.heal.scriptsDir || '.', t.script);
+    if (!fs.existsSync(p)) missing.push(`${t.name || t.id} → ${p}`);
+  }
+  const desc = `${list.length} 个（${withScript ? withScript + ' 个 script 模式' : '全是 probe'}）`;
+  if (missing.length) add('bad', '保活目标', `${desc}，脚本缺失：${missing.join('；')}`);
+  else add('ok', '保活目标', desc);
+}
+
 async function checkDaemon() {
   const c = cfg.readConfig();
   if (!c.daemon.prefer) {
@@ -122,6 +140,7 @@ async function run(argv) {
   const st = await checkLoginState();
   await checkApi(allowNet, st);
   await checkSessions(allowNet, st);
+  checkHealTargets();
   await checkDaemon();
   checkBrowser();
 

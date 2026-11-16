@@ -124,23 +124,39 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 
 | 循环 | 默认周期 | 干什么 | 挂了会怎样 |
 |---|---|---|---|
-| `heal` | 10 分钟 | 对名单里的实例 exec 一个探针命令（默认 `uptime`） | 实例开始倒计时被回收 |
+| `heal` | 10 分钟 | 对名单里的实例 exec 一条探针命令（默认 `uptime`），或跑目标声明的自愈脚本 | 实例开始倒计时被回收 |
 | `refresh` | 6 小时（剩余 < 12h 才动） | 换新 E2B token | 拿旧 token 会 401，CLI 也不好使 |
 | `renew` | 按需（cookie < 2 天） | 走 SSO 静默换新登录 cookie | 满 7 天得人工重新登录 |
 
 `renew` 需要真浏览器，默认关。开了但机器上没有 chromium，它会自己跳过并说明原因。
 
-保活探针可以改（不一定要 `uptime`，任何不产生副作用、能快速返回的命令都行）：
+保活有两种模式，由目标自己声明：**探针**（默认，跑一条短命令）和**脚本**（把本地脚本送进去跑，
+用于全量自愈）。脚本可读不到就直接算失败 —— 不会静默退回探针，配置写错要在体检里当场看见。
 
 ```json
 {
   "heal": {
-    "targets": [{ "id": "2120000000000000000", "name": "work-01" }],
     "intervalMs": 600000,
-    "probe": "uptime"
+    "probe": "uptime",
+    "scriptsDir": "./sandbox",
+    "timeoutSec": 120,
+    "targets": [
+      { "id": "2120000000000000000", "name": "sb-01", "script": "heal/sb-heal-tun.sh" },
+      { "id": "2118716898270863360", "name": "sb-02" }
+    ]
   }
 }
 ```
+
+- `targets[].script` 相对 `scriptsDir` 解析（绝对路径则原样用）；省略就是探针模式。
+- 脚本的输出按前缀分拣：`ACTION:` / `ERROR:` 收进本轮记录并单独打一行，`STATE:` 作为状态快照。
+  **`ERROR:` 不算本轮失败**（那通常是要人去处理的隐患，不是链路断了），但会在
+  `wbsbx daemon status` 里显示成「N 条告警」。
+- `timeoutSec` 默认 120：脚本模式最坏路径要跑一遍完整的开机流程，60 秒会先放手。
+- ⚠ **`id` 必须写成字符串**。这些 id 超过 2^53，写成 JSON 数字会被 JS 静默舍入，
+  最后表现为「实例不存在」。
+
+`wbsbx doctor` 会额外检查一项「保活目标」：配了 `script` 但文件不存在，直接标红并退出 1。
 
 配置在 `$WB_CLOUD_HOME/wbsbx.json`（默认 `~/.wbsbx/wbsbx.json`）。改完不用重启，下一轮就生效。
 

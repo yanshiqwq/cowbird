@@ -92,7 +92,8 @@ async function status(argv) {
     return (s / 3600).toFixed(1) + ' 小时前';
   };
   const lastHeal = st.lastHeal && !st.lastHeal.skipped
-    ? `${st.lastHeal.ok || 0} 正常 / ${st.lastHeal.failed || 0} 失败`
+    ? `${st.lastHeal.ok || 0} 正常 / ${st.lastHeal.failed || 0} 失败` +
+      (st.lastHeal.warned ? ui.c.yellow(`，${st.lastHeal.warned} 条告警`) : '')
     : (st.lastHeal && st.lastHeal.skipped ? ui.c.dim('跳过（' + st.lastHeal.skipped + '）') : '-');
   const login = st.login && st.login.present
     ? `${st.login.cookies} 条 cookie，剩 ${st.login.ttlDays === null ? '?' : st.login.ttlDays.toFixed(1)} 天`

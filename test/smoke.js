@@ -24,6 +24,7 @@ const session = require('../lib/session');
 const e2b = require('../lib/e2b');
 const resolve = require('../lib/resolve');
 const { Keepalive } = require('../lib/keepalive');
+const { runHeal, normalizeTargets } = require('../lib/daemon/heal');
 
 let pass = 0;
 let fail = 0;
@@ -286,6 +287,81 @@ function frame(obj) {
     await kp.tick();
     assert.strictEqual(kp.state.nudges, 1);
     assert.strictEqual(kp._nudgeFails, 0, 'agent 都动了，不能记成失败');
+  });
+
+  console.log('\nheal（probe / script 双模式）');
+  const mkDeps = (over = {}) => {
+    const calls = [];
+    return {
+      calls,
+      exec: async (creds, cmd, o) => { calls.push({ cmd, o }); return { out: '', err: '', code: 0 }; },
+      getSession: async () => ({ token: 'a' }),
+      refreshSession: async () => ({ token: 'b' }),
+      ...over,
+    };
+  };
+
+  ok('normalizeTargets 保留 script、id 转字符串', () => {
+    const t = normalizeTargets([{ id: 2118, name: 'a', script: 'heal/x.sh' }, '123']);
+    assert.deepStrictEqual(t[0], { id: '2118', name: 'a', script: 'heal/x.sh' });
+    assert.deepStrictEqual(t[1], { id: '123', name: '', script: '' });
+  });
+  ok('id 写成 JSON 数字会丢精度（所以文档要求写字符串）', () => {
+    // 2120000000000000000 > 2^53，作为 Number 已经不准；这不是 bug，是必须写引号的原因
+    assert.notStrictEqual(String(2120000000000000000), '2120000000000000000');
+    assert.strictEqual(String(normalizeTargets([{ id: '2120000000000000000' }])[0].id), '2120000000000000000');
+  });
+
+  await okAsync('没有 script 的目标仍然跑 probe', async () => {
+    const deps = mkDeps();
+    const r = await runHeal({ targets: [{ id: '1' }], probe: 'uptime' }, () => {}, deps);
+    assert.deepStrictEqual(deps.calls.map((c) => c.cmd), ['uptime']);
+    assert.strictEqual(r.results[0].mode, 'probe');
+    assert.strictEqual(r.ok, 1);
+  });
+
+  await okAsync('script 模式：把文件内容当命令送进去', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wbsbx-heal-'));
+    fs.writeFileSync(path.join(dir, 'h.sh'), '#!/bin/sh\necho "ACTION: 修好了"\necho "STATE: ok"\n');
+    const deps = mkDeps({ exec: async (c, cmd, o) => { deps.calls.push({ cmd, o }); return { out: 'ACTION: 修好了\nSTATE: ok\n', err: '', code: 0 }; } });
+    const r = await runHeal({ targets: [{ id: '1', script: 'h.sh' }], scriptsDir: dir }, () => {}, deps);
+    assert.strictEqual(deps.calls.length, 1);
+    assert.match(deps.calls[0].cmd, /echo "ACTION: 修好了"/, '送进去的应是脚本正文');
+    assert.strictEqual(r.results[0].mode, 'script');
+    assert.deepStrictEqual(r.results[0].actions, ['ACTION: 修好了']);
+    assert.strictEqual(r.warned, 0);
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  await okAsync('脚本路径写错：算失败，且不静默退回 probe', async () => {
+    const deps = mkDeps();
+    const r = await runHeal({ targets: [{ id: '1', script: 'no-such-file.sh' }] }, () => {}, deps);
+    assert.strictEqual(deps.calls.length, 0, '读不到文件就不该去连远端');
+    assert.strictEqual(r.failed, 1);
+    assert.match(r.results[0].error, /脚本读不到/);
+  });
+
+  await okAsync('脚本输出 ERROR: 不算失败，但计入告警', async () => {
+    const deps = mkDeps({ exec: async () => ({ out: 'ERROR: pivot 没挂\nSTATE: x=1\n', err: '', code: 0 }) });
+    const r = await runHeal({ targets: [{ id: '1' }] }, () => {}, deps);
+    assert.strictEqual(r.ok, 1);
+    assert.strictEqual(r.failed, 0);
+    assert.strictEqual(r.warned, 1);
+    assert.deepStrictEqual(r.results[0].errors, ['ERROR: pivot 没挂']);
+  });
+
+  await okAsync('exec 失败后强制换凭据重试一次', async () => {
+    let n = 0;
+    let refreshed = 0;
+    const deps = mkDeps({
+      exec: async () => { n++; if (n === 1) throw new Error('401 boom'); return { out: '', err: '', code: 0 }; },
+      refreshSession: async () => { refreshed++; return { token: 'b' }; },
+    });
+    const r = await runHeal({ targets: [{ id: '1' }] }, () => {}, deps);
+    assert.strictEqual(n, 2);
+    assert.strictEqual(refreshed, 1);
+    assert.strictEqual(r.ok, 1);
+    assert.strictEqual(r.results[0].attempt, 2);
   });
 
   // 收尾

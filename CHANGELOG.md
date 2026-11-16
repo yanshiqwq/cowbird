@@ -15,6 +15,11 @@
   - `--no-nudge` 只连接不催话（不留痕）；`--max-nudges` / `--duration` 控制边界。
 - `test/halfopen.js`（`npm run test:net`）：起本地假 ACP 服务端，复现五种"看起来还连着"
   的坏法并断言恢复行为。
+- `heal.targets[].script`：目标可以声明一个本地脚本（相对 `heal.scriptsDir`），heal 会把
+  脚本内容送进沙箱跑 —— 也就是"全量自愈"而不只是 `uptime` 探针。没声明的仍走 `probe`。
+  脚本读不到算本轮失败，不静默降级；输出里的 `ERROR:` 行单独记为告警，出现在
+  `daemon status` 的「N 条告警」里。
+- `doctor` 新增「保活目标」一项：脚本路径写错在启动前就看得见。
 - 每条命令的 `--help` 增加 `选项 / 说明 / 退出码` 三段；主 help 重新分组。
 
 ### 变更
