@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 纯逻辑：参数解析、cookie jar、401 不写盘、帧解析、keepalive 状态机。
+  # 不联网、不需要登录态，几秒跑完 —— 所以多跑几个 node 版本也不心疼。
+  unit:
+    name: 离线冒烟 · node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      # playwright-core 是可选的、只给 login 用；测试路径完全不碰它，装它纯属浪费
+      - run: npm ci --omit=optional --no-audit --no-fund
+      - run: npm test
+
+  # 起本地假 ACP 服务端，实测"挂一半静默断掉"的五种坏法。
+  # 要真开端口、真等超时，约 20 秒，所以单独一个 job。
+  net:
+    name: 半开连接回归 · node 22
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --omit=optional --no-audit --no-fund
+      - run: npm run test:net

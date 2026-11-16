@@ -1,5 +1,7 @@
 # wbsbx
 
+[![CI](https://github.com/yanshiqwq/wbsbx/actions/workflows/ci.yml/badge.svg)](https://github.com/yanshiqwq/wbsbx/actions/workflows/ci.yml)
+
 > **非官方项目。** 用你自己的账号登录、只管你自己的实例，不自带任何凭据、不做提权、不绕过计费。
 > 使用的是该服务的网页接口，**可能违反其服务条款**，风险自负。详见 [DISCLAIMER.md](DISCLAIMER.md)。
 
@@ -263,6 +265,10 @@ npm run test:net  # 半开连接回归（8 项）：要起本地 TCP 服务，�
 
 两套测试的分工：`smoke` 跑纯函数与可注入的桩，必须秒级；`halfopen` 专门打"看起来还连着、
 其实早已失效"的连接问题 —— 这类 bug 只能拿真 socket 复现，放进 `smoke` 会把日常测试拖慢。
+
+## 变更记录
+
+见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## License
 
