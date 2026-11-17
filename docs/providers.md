@@ -102,10 +102,10 @@ limits: { maxSyncMs: 28000,   // 平台硬顶（码道 30s → 留 2s 余量）
 
 | 平台 | 鉴权要点 | 坑 |
 |---|---|---|
-| WorkBuddy | cookie + **登录时的 UA 逐字节绑定** | UA 改一个字符就 401 |
+| WorkBuddy | **仅 accessToken**（Bearer）；无头登录：打印链接 + 轮询 | 老路 cookie+UA 绑定已废弃 |
 | 码道 | cookie + `cftk`（CSRF）+ `agent-type` | 未登录是 **200 + 空体 + `HW-AJAX-REDIRECT`**，不是 401 |
 | Qoder | **仅 cookie** | token 静默轮换，旧 token 打某些端点 401 |
-| MiniMax | JWT + `x-signature=md5(ts+SECRET+body)` + `yy` | `yy` 算法未逆出 → 缺它就抛 `E_NEED_YY`，**绝不发半成品请求** |
+| MiniMax | JWT + `x-signature=md5(ts+SECRET+body)` + `yy` | `yy` 已自算（且实测服务端不校验）；真正的坑是 query 里 `user_id` 必须用 realUserID、`device_id` 必须纯数字 |
 
 ---
 

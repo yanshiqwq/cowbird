@@ -3,6 +3,40 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.7.0] - 2026-11-17
+
+两条大改：**WorkBuddy 砍掉 cookie 模式（只留 accessToken）**，**MiniMax 的 `yy` 攻破并证明服务端不校验**。
+
+### WorkBuddy：只留 accessToken
+
+实测 CodeBuddy CLI 的插件登录（`copilot.tencent.com/v2/plugin/auth/*`）拿到的 accessToken
+**能打同一套控制面**（列表 / 详情 / `/session` / E2B exec 全部 200），于是把 cookie 模式整条删除：
+
+- 删掉 `lib/platform/workbuddy/lib/{creds,browser}.js`、`login-flow.js`、`renew-flow.js`
+  与 `test/probe-ua-binding.js`（约 700 行），`session.js` 从 238 行瘦到 79 行，只剩 Bearer。
+- 新增 `device-login.js`（打印链接 + 轮询）与 `token-store.js`（存取 / 有效期 / refreshToken 续期）；
+  新增 `lib/token-cache.js` 接管原 `creds.js` 里"会话级 E2B 凭据缓存"那一半。
+- `wbsbx login` 只剩一条路：无头登录（不需要浏览器 / playwright / Edge）。
+- `doctor` 报 `accessToken · 账号 · 剩余 N 天`。
+- 副作用（要知道）：登录态绑的是**授权时那个账号**；换账号＝重新 `wbsbx login`。
+
+### MiniMax：`yy` 攻破
+
+- `yy = md5(encodeURIComponent(wQ(url, params)) + '_' + bodyYY + md5(整秒毫秒) + 'ooui')`，
+  其中 `wQ` 用 `URLSearchParams` 序列化；**当年对不上是因为公共参数里的 `op_ticket=undefined`
+  被序列化成字面量，而 axios 拼真 URL 时把它丢了**。19 条真机抓包 19/19 逐字节复算成功。
+- 更关键的否证：**服务端根本不校验 `yy`** —— 换随机值 / 全 0 / 空串 / 完全不带，全部 200；
+  而 `x-signature` 填错立刻 400。之前那个 401 的真因是 query 里 `user_id` 必须用
+  `userInfo.realUserID`（≠ JWT 的 `user.id`）、`device_id` 必须纯数字。
+- 于是删掉 `E_NEED_YY` 门禁与"抓 yy"那套；`captureYY` 降级为调试覆盖。
+- 真机验证：`wbsbx --platform minimax ls` / `info` / `history` 全部可用（纯 HTTP，浏览器已关）。
+
+### 其它
+
+- `docs/providers.md` 的鉴权对照表更新（WorkBuddy 改 Bearer；MiniMax 的 yy 结论）。
+- 冒烟测试里 5 项 cookie/UA 断言换成 token 有效期与凭据缓存；WorkBuddy 自检 46 项、
+  MiniMax 42 项，全离线。
+
 ## [0.6.0] - 2026-11-17
 
 **解耦收尾：`lib/` 里不再有任何平台实现，解耦守卫归零（BASELINE 清空）。**

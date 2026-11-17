@@ -1,6 +1,6 @@
 {
   "name": "wbsbx",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "WorkBuddy 云沙箱管理器：CLI 操作实例，daemon 负责保活与登录态续期",
   "bin": {
     "wbsbx": "bin/wbsbx.js",

@@ -19,8 +19,8 @@ process.env.WBSBX_LOCAL = '1';        // 不探测 daemon，避免 4 秒网络�
 const args = require('../lib/args');
 const ui = require('../lib/ui');
 const cfg = require('../lib/config');
-const creds = require('../lib/platform/workbuddy/lib/creds');
-const session = require('../lib/platform/workbuddy/lib/session');
+const tokenStore = require('../lib/platform/workbuddy/token-store');
+const tokenCache = require('../lib/platform/workbuddy/lib/token-cache');
 const e2b = require('../lib/platform/workbuddy/lib/e2b');
 const resolve = require('../lib/resolve');
 const { Keepalive } = require('../lib/platform/workbuddy/lib/keepalive');
@@ -38,13 +38,6 @@ async function okAsync(name, fn) {
 }
 
 // 造一个假的 fetch 响应：只实现 session.http 真正用到的两个成员
-function stubFetch(status, setCookies, body = '{}') {
-  global.fetch = async () => ({
-    status,
-    headers: { get: () => null, getSetCookie: () => setCookies },
-    text: async () => body,
-  });
-}
 function frame(obj) {
   const payload = Buffer.from(JSON.stringify(obj));
   const hdr = Buffer.alloc(5);
@@ -73,50 +66,27 @@ function frame(obj) {
     assert.deepStrictEqual(a._.slice(1), ['sleep', '--json']);
   });
 
-  console.log('\ncookie jar');
-  ok('合并键是 name+path+domain，同名不同 path 互不影响', () => {
-    const s = { cookies: [{ name: 'session', value: 'GOOD', domain: 'www.workbuddy.cn', path: '/' }] };
-    const r = session.absorbSetCookie(s, ['session=; Path=/console; Max-Age=0']);
-    assert.strictEqual(r, s, '/console 那条不该动到 path=/');
+  console.log('\n登录态（只有 accessToken 一条路）');
+  ok('token 有效性：有到期时间就比时间，没给就当它有效', () => {
+    const now = Math.floor(Date.now() / 1000);
+    assert.strictEqual(tokenStore.valid({ accessToken: 'a', expiresAt: now + 3600 }), true);
+    assert.strictEqual(tokenStore.valid({ accessToken: 'a', expiresAt: now - 10 }), false);
+    assert.strictEqual(tokenStore.valid({ accessToken: 'a' }), true, '没给 expiresAt 就当有效，401 时再刷');
+    assert.strictEqual(tokenStore.valid({}), false);
+    assert.strictEqual(tokenStore.valid(null), false);
   });
-  ok('path=/ 的删除指令才会删掉对应 cookie', () => {
-    const s = { cookies: [{ name: 'session', value: 'GOOD', domain: 'www.workbuddy.cn', path: '/' }] };
-    const r = session.absorbSetCookie(s, ['session=; Path=/; Max-Age=0']);
-    assert.strictEqual(r.cookies.length, 0);
+  ok('token 存取：写进去能读回来，clear 之后读不到', () => {
+    tokenStore.write({ accessToken: 'tk-1', refreshToken: 'rf-1', expiresAt: Math.floor(Date.now() / 1000) + 60 });
+    assert.strictEqual(tokenStore.read().accessToken, 'tk-1');
+    tokenStore.clear();
+    assert.strictEqual(tokenStore.read(), null);
   });
-  ok('正常 set-cookie 会新增/覆盖', () => {
-    const s = { cookies: [] };
-    const r = session.absorbSetCookie(s, ['a=1; Path=/; Max-Age=3600']);
-    assert.strictEqual(r.cookies.length, 1);
-    assert.strictEqual(r.cookies[0].value, '1');
-    assert.ok(r.cookies[0].expires > Date.now() / 1000);
-  });
-
-  console.log('\n401 不能把登录态写没');
-  creds.writeLocalState({ ua: 'UA-fixed', cookies: [{ name: 'session', value: 'GOOD', domain: 'www.workbuddy.cn', path: '/' }] });
-  const before = JSON.parse(fs.readFileSync(cfg.PATHS.state, 'utf8'));
-
-  await okAsync('200 时正常吸收 Set-Cookie，并留下 last-good', async () => {
-    creds.reset();
-    stubFetch(200, ['session=FRESH; Path=/; Max-Age=3600']);
-    const r = await session.get('/x');
-    assert.strictEqual(r.status, 200);
-    const now = JSON.parse(fs.readFileSync(cfg.PATHS.state, 'utf8'));
-    assert.strictEqual(now.cookies[0].value, 'FRESH');
-    assert.ok(fs.existsSync(cfg.PATHS.stateLastGood), '应生成 state.json.last-good');
-    const good = JSON.parse(fs.readFileSync(cfg.PATHS.stateLastGood, 'utf8'));
-    assert.strictEqual(good.cookies[0].value, 'GOOD', 'last-good 应是上一版');
-  });
-
-  await okAsync('401 时既不写盘、也不删 cookie', async () => {
-    creds.reset();
-    const snapshot = fs.readFileSync(cfg.PATHS.state, 'utf8');
-    stubFetch(401, ['session=; Path=/; Max-Age=0', 'session_2=; Path=/; Max-Age=0'], '{"error":"invalid_token"}');
-    await assert.rejects(() => session.get('/x'), /401/);
-    assert.strictEqual(fs.readFileSync(cfg.PATHS.state, 'utf8'), snapshot, '401 后 state.json 必须字节不变');
-    const now = JSON.parse(fs.readFileSync(cfg.PATHS.state, 'utf8'));
-    assert.strictEqual(now.cookies.length, 1);
-    assert.strictEqual(now.cookies[0].value, 'FRESH');
+  ok('会话级凭据缓存（E2B token）独立于登录态', () => {
+    tokenCache.writeToken('123', { token: 'e2b-abc', expireAt: 1 });
+    assert.strictEqual(tokenCache.readToken('123').token, 'e2b-abc');
+    assert.ok(tokenCache.cachedIds().includes('123'));
+    tokenCache.dropToken('123');
+    assert.strictEqual(tokenCache.readToken('123'), null);
   });
 
   console.log('\nE2B 帧');

@@ -7,16 +7,16 @@
 ```
 lib/platform/minimax/
   index.js       provider 定义：能力位 / auth / instances / agent / model / doctor
-  transport.js   HTTP 层：公共 query、x-signature、yy 提供器、SSE 解析、token 轮换回收
+  transport.js   HTTP 层：公共 query、x-signature、yy 自算、SSE 解析、token 轮换回收
   map.js         会话 → Instance、消息/SSE 负载 → 契约 Event（纯函数）
-  selftest.js    纯离线自检（33 项，不联网、不需要凭据）
+  selftest.js    纯离线自检（42 项，不联网、不需要凭据；含 yy 的真机抓包复算）
   README.md      本文件
 ```
 
 自检：
 
 ```bash
-node lib/platform/minimax/selftest.js        # ✓ 33/33，退出 0
+node lib/platform/minimax/selftest.js        # ✓ 42/42，退出 0
 node --check lib/platform/minimax/index.js
 node test/contract.js                        # 18 项（内核契约，不受本驱动影响）
 ```
@@ -29,10 +29,10 @@ node test/contract.js                        # 18 项（内核契约，不受本
 |---|---|---|
 | `auth` | ✅ | `token` JWT 快照 + cookies；每次请求从 store 重读（token 会静默轮换） |
 | `auth.browser` | ✅ | 登录只有短信验证码（`/v1/api/user/login/sms/send` → `/login/phone`），只能在浏览器里完成 |
-| `instances.list` | ✅ | `GET /minimax-cloud/api/v1/sidebar/session/tree`（需要 `yy`） |
-| `instances.meta` | ✅ | `GET /minimax-cloud/api/v1/session/{id}`（需要 `yy`） |
+| `instances.list` | ✅ | `GET /minimax-cloud/api/v1/sidebar/session/tree`（**纯 HTTP**，2026-11-17 打通） |
+| `instances.meta` | ✅ | `GET /minimax-cloud/api/v1/session/{id}`（**纯 HTTP**，实测输出见 §7.2） |
 | `agent` | ✅ | SSE `agent-stream…/events` + 轮询 `/session/{id}/message` |
-| `model` | ✅ | `/minimax-cloud/api/v1/config`（**不需要 `yy`**，是唯一纯 HTTP 可自证的端点） |
+| `model` | ✅ | `/minimax-cloud/api/v1/config`（纯 HTTP） |
 | `instances.create` / `rename` / `remove` | ❌ | 写接口**未实测**，不猜 |
 | `exec` / `exec.background` / `fs` | ❌ | **平台没有这条通道**（见第 5 节，这是结论不是遗漏） |
 | `agent.question` / `agent.interrupt` | ❌ | `agent/{id}/questionnaire/pending` 只看到 GET，回答/打断的写接口未实测 |
@@ -42,7 +42,7 @@ node test/contract.js                        # 18 项（内核契约，不受本
 
 ---
 
-## 2. 鉴权：三件套 + 公共 query
+## 2. 鉴权：三件套 + 两个身份参数 + 公共 query
 
 每个请求都要带：
 
@@ -51,8 +51,10 @@ node test/contract.js                        # 18 项（内核契约，不受本
 | 头 `token` | JWT（约 385 字符，HS256） | ✅ 已验证 |
 | 头 `x-timestamp` | 秒级时间戳 | ✅ |
 | 头 `x-signature` | `md5(timestamp + "I*7Cf%WZ#S&%1RlZJ&C2" + body)` | ✅ **已逆出**，逐字节验证过 |
-| 头 `yy` | 32 hex，每请求不同 | ❌ **算法未逆出**（见第 3 节） |
-| query | 22 个公共参数（含 `token` 本身、`unix` 毫秒、`uuid`、`device_id`、`user_id`） | ✅ 已对齐 |
+| 头 `yy` | 32 hex，每请求不同 | ✅ **已逆出**（§3），但**服务端不校验**——不带也 200 |
+| query `user_id` | **必须是 `userInfo.realUserID`**（≠ JWT 的 `user.id`） | ✅ 硬门禁：错/缺 → **401 空体** |
+| query `device_id` | 纯数字（浏览器是 8 位随机数）；不传也行 | ✅ 硬门禁：UUID/空串 → **401 空体** |
+| query | 22 个公共参数（含 `token` 本身、`unix` 毫秒、`uuid`） | ✅ 已对齐 |
 
 签名的两个关键点（selftest 里都有硬编码期望值守着）：
 
@@ -70,78 +72,109 @@ UA 用桌面上同一版本的 Chrome 串（与 query 里自称的 `os_name=Wind
 
 ---
 
-## 3. yy 的现状与绕过（本驱动最诚实的部分）
+## 3. yy：逆出来了，而且**它不是门禁**（2026-11-17 定论）
 
-> **2026-11-17 真机结论（重要）**：**照抄的 `yy` 不能复用**。
-> 用 CDP 从浏览器里抓到某个端点**当时**的 `yy`（同路径、1 分钟内），注入 `captureYY` 后
-> 用新的 `x-timestamp` 重放 —— `/sidebar/session/tree` **仍然 401（空体）**。
-> 也就是说 `yy` 不是"按路径缓存的令牌"，而是**与那一次请求（时间戳/参数）绑定的签名**，
-> 一次一用。**在不逆出 `yy` 算法的前提下，MiniMax 无法纯 HTTP 驱动**；
-> 本驱动因此只能读"已经能读的那两个端点"（`/v1/api/user/info`、`/minimax-cloud/api/v1/config`），
-> 其余一律诚实报错，不假装有数据。
-> `captureYY` 现在只保留作**调试/取证**用途，`doctor` 会写明"复用不可行"。
+一句话：**`yy` 的算法已经完全还原（与浏览器逐字节一致），但服务端根本不校验它 ——
+所以 MiniMax 现在可以纯 HTTP 驱动，不需要浏览器、不需要抓包、不需要 Playwright 常驻。**
 
-**现状**：`yy` 是一个每请求变化的 32 位 hex。bundle 里能看到结构：
+### 3.1 算法（bundle 原文 + 逐字节验证）
+
+前端 `prod-web-sh-0.1.269` 里两个模块拼起来就是全部（`52724` 算，`65776` 拼）：
 
 ```js
-yy = hash( encodeURIComponent(url + params) + "_" + bodyJSON + hash(ts) + "ooui" )
+// 65776: wQ —— 把参数对象拼成 "url?k=v&..."
+function wQ(e, t) {
+  const i = new URLSearchParams(t).toString();
+  return e.includes('?') ? `${e}&${i}` : `${e}?${i}`;
+}
+
+// 52724: yy —— 两次 md5，中间夹一个 time
+function yy({ hasSearchParamsPath: t, bodyToYY: i, method: a, time: n, body: s }) {
+  let o = '{}';
+  if (a && a.toLowerCase() === 'post') o = s ? JSON.stringify(s) : '{}';
+  if (i) o = i;
+  return md5(`${encodeURIComponent(t)}_${o}${md5(n.toString())}ooui`);
+}
 ```
 
-但 `wQ(url, params)` 的参数**序列化顺序**与最终 URL 对不上 —— 四种候选（原始/编码 × 带域名/只路径）全部不匹配。**结论：不算出来，照抄。**
+驱动里就是 [`transport.computeYY(url, params, ts, body, method)`](transport.js)。
 
-**实测约束**：
+**三个坑**（当初「四种候选全不匹配」就卡在第 2 条，绕了大半天）：
 
-- `/minimax-cloud/*` **全部**要求 `yy`，不带一律 401 空体；
-- 只有 `/v1/api/user/info` 与 `/minimax-cloud/api/v1/config` 例外（这两条可用纯 HTTP 自证签名与 token）；
-- 实测**无防重放**：旧 `yy` + 旧 `ts` 照样 200 ⇒ 抓一份可以重复用；
-- SSE（`agent-stream` 域）把 `token` 放在 query 里，**不需要 `yy`**。
+| # | 坑 | 具体 |
+|---|---|---|
+| 1 | `encodeURIComponent` 的位置 | 它作用在 `wQ(...)` 那一整个 **`path?query`** 字符串上，不是分段编、也不是先 hash 再编 |
+| 2 | **`op_ticket=undefined`** | 公共参数里 `op_ticket = userInfo.op_ticket`（本账号是 `undefined`）。`URLSearchParams` 会把它序列化成字面量 `op_ticket=undefined`，而 **axios 拼真 URL 时会把 `undefined` 丢掉** ⇒ yy 的输入比你在 Network 面板看到的 URL **多一段**。位置在 `user_id` 之后、`screen_width` 之前 |
+| 3 | `time` 是**整秒**毫秒 | 前端用 `Date.parse(new Date().toString())`，毫秒位恒为 `000`，等于 URL 上的 `unix=` 参数；**不是** `Date.now()` 的原始毫秒 |
 
-**本驱动的绕过方式：把 yy 变成"可由用户投放的凭据"。**
+### 3.2 自证方式（都在 `selftest.js` 里，期望值硬编码）
 
-`transport` 每次发要 `yy` 的请求时，按下面的顺序找一份：
+- **真机 19/19**：CDP 里 hook `fetch` 抓到 19 条带 `yy` 的请求（完整 URL + `x-timestamp` + `yy`），
+  用 `computeYY` 复算 —— **19 条全部逐字节相同**；
+- **反向 200**：把复算出来的 yy 拿去真打 `/sidebar/session/tree` → **200**（不是"算得对但没用"）；
+- **离线固化成用例**：`selftest.js` 里 3 组硬编码期望值（tree / config / POST），
+  数据是抓包原值，**只有 token 换成了假串**（真 token 是凭据，不能进代码）。
 
-1. 环境变量 `MINIMAX_YY`（临时试跑用，视为对所有路径生效）；
-2. `ctx.store` 的 `yy`（推荐；形状三种都认）：
+### 3.3 决定性反证：yy **不参与校验**
 
-```jsonc
-// 单一全局（最省事）
-"abcdef0123456789abcdef0123456789"
+抓到 yy 之后，最省事的做法是"验证一下它到底管什么"，结果直接把前提推翻了：
 
-// 绑定某条路径（推荐：yy 很可能与 URL 绑定，我们没验证过）
-{ "yy": "abcdef…", "path": "/minimax-cloud/api/v1/sidebar/session/tree", "capturedAt": 1794876062782 }
+| 实验（同一条 `/sidebar/session/tree`，身份参数都正确） | 结果 |
+|---|---|
+| `yy` = 复算值（浏览器等价） | **200** |
+| `yy` = 随机 32 hex | **200** |
+| `yy` = 32 个 `0` | **200** |
+| `yy` = 空串 `''` | **200** |
+| **不带 `yy` 头** | **200** |
+| `x-signature` = 错的（32 个 `0`） | **400 `{"error":"invalid signature"}`** |
 
-// 多份，按路径挑
-{ "entries": [ { "yy": "…", "path": "/minimax-cloud/api/v1/sidebar/session/tree" },
-               { "yy": "…", "path": "/minimax-cloud/api/v1/session/*" } ] }
-```
+⇒ **`yy` 是前端自己加的一层"看着像安全"的装饰**，服务端不验。
+`/minimax-cloud/*` 的其它读接口（`/session/{id}`、`/session/{id}/message`、`/agent`、`/skill`、
+`/plugins/enabled`、`/interaction/capabilities`）不带 yy 也全部 **200**。
 
-匹配优先级：**路径完全匹配 > 前缀通配（`*` 结尾）> 未绑定路径的全局默认**。都命中不了 → 抛 `E_NEED_YY`：
+### 3.4 那当初的 401 是什么？—— 真凶是 `user_id` 和 `device_id`
 
-```
-该端点需要 yy 头，算法未逆出；请用浏览器侧或以只读端点代替。缺失端点：/minimax-cloud/api/v1/sidebar/session/tree
-```
+「缺 yy 一律 401」这个结论是**错的归因**。逐项做差分（每次只改一个参数、重算 yy）才定位到：
 
-> 缺 yy 时**绝不发请求** —— 发出去必然是 401，还会被后面的人误判成"登录态坏了"。
+| 变量 | 传什么 | 结果 |
+|---|---|---|
+| `user_id` | `userInfo.realUserID`（如 `578884…795`） | **200** |
+| `user_id` | JWT 里的 `user.id`（同一账号，但是另一个数） | **401 空体** |
+| `user_id` | 不传 | **401 空体** |
+| `device_id` | 纯数字（浏览器里是 8 位随机数，换个随机数也行） | **200** |
+| `device_id` | UUID 形态（我们早期就存的是 uuid） | **401 空体** |
+| `device_id` | 空串 | **401 空体** |
+| `device_id` | **不传** | **200** |
+| `uuid` | 随便改 / 不传 | **200**（只管埋点） |
 
-**怎么抓一份**：浏览器登录 agent.minimax.cn → F12 → Network → 任意 `/minimax-cloud/api/v1/*` 请求 → Request Headers 里复制 `yy`（32 hex）。然后：
+也就是说：**JWT 的 `user.id` ≠ `userInfo.realUserID`**，早期版本把前者塞进 query，
+每条受保护请求都 401 —— 而当时恰好"没带 yy"，于是 yy 背了锅。
 
-```js
-const registry = require('./lib/platform');
-const p = registry.use('minimax');
-const ctx = registry.context(p);
-await p.auth.captureYY(ctx, { yy: 'abcdef…', path: '*' });                    // 全局
-await p.auth.captureYY(ctx, { yy: '…', path: '/minimax-cloud/api/v1/sidebar/session/tree' }); // 绑路径
-```
+驱动的处理：
 
-**没 yy 的时候会怎样**（不崩、也不静默）：
+- `auth.login()` 落地 token 后**立刻探一次** `/v1/api/user/info` 把 `realUserID` 写进快照；
+  快照里没有时，`transport.request()` 会**自动补一次**（`ensureRealUserId()`），补到的值缓存下来；
+- `device_id` 不是纯数字时自动换成 8 位数字并落盘（`ensureDeviceIds()`）；
+- `yy` 照算（为了"和浏览器逐字节一致"这件事可自证），但**缺了不抛**，`yy:false` 还能整个不发。
+
+### 3.5 还剩什么自由度没拿下
+
+- **写接口**（`POST /session/{id}/message`、`/queue`、`/interaction/*` 的提交）没实测 ——
+  yy 不校验这条结论只在 **GET 读接口**上验证过（19 条抓包全是 GET；POST 只做了离线自证）。
+  `agent.send` 依旧默认关着，就是这个原因。
+- `agent-stream.minimax.cn/.../events`（SSE）也是 GET，同样不带 yy 走通；但帧格式未固化（见第 6 节）。
+
+---
+
+### 3.6 请求失败时的降级（不再是"缺 yy"）
 
 | 调用 | 行为 |
 |---|---|
-| `instances.list` | 有上次快照 → 返回快照，数组上挂 `stale:true` + `warning`；连快照都没有 → 返回空数组 + `stale:true` + `warning`（**不抛**） |
-| `instances.get` | 快照里有 → 返回；没有 → 抛 `E_NEED_YY`（带提示） |
+| `instances.list` | 实时拉 `/tree`；请求失败（401/网络）→ 返回上次快照，数组上挂 `stale:true` + `warning`；连快照都没有 → 空数组 + `stale:true` + `warning`（**不抛**） |
+| `instances.get` | 失败时先看快照；快照里没有才抛 `E_UNAUTHORIZED` / `E_NO_TOKEN` |
 | `instances.info` | 降级成静态说明 + `facts` 里注明"数据来源：本地快照/无数据"（**不抛**） |
-| `agent.stream` | SSE 先跑（不需要 yy）；SSE 不可用时轮询 `/message`（**需要 yy**）→ 抛 `E_NEED_YY` 事件，然后 `done` |
-| `model.list` / `model.refresh` | 不受影响（`/config` 不需要 yy） |
+| `agent.stream` | SSE 优先；不可用时轮询 `/message`；两条路都是纯 HTTP |
+| `model.list` / `model.refresh` | 不受影响 |
 
 `stale` 是挂在数组上的自有属性：
 
@@ -151,22 +184,21 @@ list.stale;    // true = 本地快照
 list.source;   // 'live' | 'cache' | 'none'
 list.at;       // 快照时间
 list.warning;  // 给人看的一句话
-list.reason;   // 'E_NEED_YY' / 'E_UNAUTHORIZED' / …
+list.reason;   // 'E_UNAUTHORIZED' / 'E_NO_TOKEN' / …
 ```
-
----
 
 ## 4. 接口与事件映射
 
-| 方法 | 路径 | yy | 驱动里在哪 |
+| 方法 | 路径 | 实测 | 驱动里在哪 |
 |---|---|---|---|
-| GET | `/v1/api/user/info` | 否 | `doctor.checks({probe:true})` |
-| GET | `/minimax-cloud/api/v1/config` | 否 | `model.refresh` |
-| GET | `/minimax-cloud/api/v1/sidebar/session/tree` | 是 | `instances.list` |
-| GET | `/minimax-cloud/api/v1/session/{id}` | 是 | `instances.get` |
-| GET | `/minimax-cloud/api/v1/session/{id}/message` | 是 | `agent.stream`（轮询）/ `agent.history` |
-| GET | `agent-stream.minimax.cn/minimax-cloud/api/v1/events` | **否** | `agent.stream`（首选） |
-| POST | `/minimax-cloud/api/v1/session/{id}/message` | 是 | `agent.send`（**默认禁用**，见第 6 节） |
+| GET | `/v1/api/user/info` | 200（不带 yy） | `doctor.checks({probe:true})` / 取 realUserID |
+| GET | `/minimax-cloud/api/v1/config` | 200（不带 yy） | `model.refresh` |
+| GET | `/minimax-cloud/api/v1/sidebar/session/tree` | 200（不带 yy） | `instances.list` |
+| GET | `/minimax-cloud/api/v1/session/{id}` | 200（不带 yy） | `instances.get` |
+| GET | `/minimax-cloud/api/v1/session/{id}/message` | 200（不带 yy） | `agent.stream`（轮询）/ `agent.history` |
+| GET | `/agent`、`/skill`、`/plugins/enabled`、`/interaction/capabilities` | 200（不带 yy） | 未包装成能力位 |
+| GET | `agent-stream.minimax.cn/minimax-cloud/api/v1/events` | 200（不带 yy，SSE） | `agent.stream`（首选） |
+| POST | `/minimax-cloud/api/v1/session/{id}/message` | **未实测** | `agent.send`（**默认禁用**，见第 6 节） |
 
 `/queue`、`/input-summaries`、`/agent`、`/skill`、`/plugins/*`、`/cron`、`/project`、`/channel*`、`/interaction/capabilities`、`/agent/{id}/questionnaire/pending` 的路径都登记在 `transport.P` 里，但驱动**没有**把它们包装成能力位 —— 没实测语义就不声明。
 
@@ -219,8 +251,9 @@ connecting → (可选的 sent) → streaming(SSE)
 
 | 项 | 状态 | 驱动里的处理 |
 |---|---|---|
-| `yy` 的完整算法 | 未逆出 | 只照抄；缺则 `E_NEED_YY` |
-| `yy` 是否与 URL/body 绑定 | 未验 | 支持按路径匹配；`*` 全局默认给"图省事"的人 |
+| `yy` 的完整算法 | **已逆出**（§3） | 自算并带上；`yy:false` 可整个不发（服务端不校验） |
+| 写接口是否也校验 yy | 未验（抓包全是 GET） | 读接口已证明不校验；POST 仍默认关着 |
+| `yy` 是否与 URL/body 绑定 | 已验：**是**（每请求算一次） | 但服务端不验，所以无所谓 |
 | POST `/session/{id}/message` 的请求体 | **未实测** | 按 `{content}` 实现，**默认禁用**；四个开关任一打开（见下） |
 | POST 的响应形状 | 未实测 | 原样返回 `data`，不解析 |
 | SSE 的事件名 / 帧格式 / 是否需要别的 query | 未实测 | 宽松解析：标准 SSE、NDJSON、一次性 JSON 都认；认不出落 `raw`；额外参数只加 `session_id` |
@@ -232,7 +265,7 @@ connecting → (可选的 sent) → streaming(SSE)
 | `status_type` 除 0/3 外的取值 | 未验 | 映射成 `unknown_<n>`，原文保留 |
 | `msg_type` 除 1/2 外的取值 | 未验 | 非 2 不当正文，落 `raw` |
 | tree 里 `archived` 的语义 | 未验 | 默认过滤，`{includeArchived:true}` 可要回来 |
-| 设备标识（`uuid`/`device_id`）是否必须先 `device/register` | 未验 | 缺失时生成一份并落盘，保证"像同一个浏览器" |
+| 设备标识是否必须先 `device/register` | 未验 | 不需要：`device_id` 换成任意纯数字照样 200（UUID 会 401）；`uuid` 随便改也 200 |
 | 额度 / 计费 / 并发会话行为 | 未验 | 不暴露，`info` 里也不猜 |
 
 **发消息的总开关**（默认关，任一处打开即可，`doctor` 会显示当前状态）：
@@ -251,8 +284,9 @@ await p.agent.send(ctx, id, { text: 'hi', allowUnverified: true });   // ① 单
 ## 7. 怎么用真账号跑
 
 前提：Node 18+（本仓库跑 Node 24），且**你自己**已在浏览器登录 agent.minimax.cn。
+**登录只需要做一次**；之后全程纯 HTTP，不需要浏览器开着、也不需要抓 yy。
 
-### 7.1 落登录态
+### 7.1 落登录态（唯一需要浏览器的一步）
 
 浏览器 F12 控制台跑（片段见 `auth.login` 的返回值，也可在命令层 `platform login minimax` 里打印）：
 
@@ -269,28 +303,70 @@ const registry = require('./lib/platform');
 const p = registry.use('minimax');
 const ctx = registry.context(p);
 
-await p.auth.login(ctx, { token: '<JWT>', cookies: { _token: '<JWT>' } });
-console.log(await p.auth.state(ctx));      // ok / tokenPreview / exp / yy.available
+const r = await p.auth.login(ctx, { token: '<JWT>', cookies: { _token: '<JWT>' } });
+console.log(r.realUserId);           // 落地时会自动探一次 /v1/api/user/info 拿 realUserID
+console.log(await p.auth.state(ctx)); // ok / tokenPreview / exp / realUserId / yy.mode
 ```
 
-临时试跑可以完全不落盘：`MINIMAX_TOKEN=<JWT>`（可选 `MINIMAX_UUID` / `MINIMAX_DEVICE_ID` / `MINIMAX_USER_ID` / `MINIMAX_YY`）。
+`auth.login` 会顺手补两件**必需**的东西（不补就会 401，且看起来像"登录态坏了"）：
 
-### 7.2 先跑"不需要 yy"的两条，确认签名与 token 是对的
+1. `realUserID` —— query 里 `user_id` 必须用它（≠ JWT 的 `user.id`）；
+2. `device_id` —— 强制成纯数字（早期存的是 UUID，会 401）。
 
-```js
-await p.transport.get(ctx, p.transport.P.info);       // /v1/api/user/info
-await p.model.refresh(ctx);                            // /minimax-cloud/api/v1/config
-console.log(await p.doctor.checks(ctx, { probe: true }));
+临时试跑可以完全不落盘：`MINIMAX_TOKEN=<JWT>`（可选 `MINIMAX_UUID` / `MINIMAX_DEVICE_ID` /
+`MINIMAX_REAL_USER_ID`；`MINIMAX_YY` 只剩调试意义）。
+
+### 7.2 真机实跑输出（2026-11-17，同一个账号，纯 HTTP）
+
+```console
+$ node bin/wbsbx.js --platform minimax ls
+ID               名字                状态     最近活动
+───────────────  ──────────────────  ───────  ────────────────
+464000000000001  示例会话 A  idle     2026-11-17 00:55
+464000000000004  示例会话 B        aborted  2026-11-17 00:40
+
+共 2 个 · 平台 MiniMax Code（agent.minimax.cn）
 ```
 
-这两条 200 ⇒ `x-signature` + token + 公共 query 全对。**如果这两条 401，先别怀疑 yy**：那是 token 过期/被轮换，重抓一份。
+```console
+$ node bin/wbsbx.js --platform minimax info 464000000000001
+项目        值
+ID          464000000000001
+名字        示例会话 A
+状态        idle
+平台        MiniMax Code（agent.minimax.cn），agent 跑在云端 K8s Pod 上
+会话        464000000000001 · 示例会话 A
+状态        idle（status_type=0）
+Agent       464087654089272
+模型        MiniMax-M3.1-Flash（provider=minimax）
+上下文窗口  512000 tokens
+思考链      variant=thinking，effort=max
+创建时间    2026-11-17T00:41:00.900Z
+更新时间    2026-11-17T00:55:16.458Z
+类型        session_type=0，team_mode=off，project_id=0
+算力与配额  平台不暴露：控制面没有 CPU/内存/磁盘字段，也没有 exec/fs 通道可以自己量（工具由服务端派发）
+数据来源    实时读取（/session/{id}）
+```
 
-### 7.3 补 yy，然后读会话
+```console
+$ node bin/wbsbx.js --platform minimax history 464000000000001 --json
+{"platform":"minimax","id":"464000000000001","messages":20,"lines":10,"truncated":false,
+ "raw":"…/history-464000000000001.jsonl","txt":"…/history-464000000000001.txt"}
+```
+
+```console
+$ node bin/wbsbx.js --platform minimax doctor
+✓  登录态               token eyJhbGciOi…b5HI（来源 store，到期 2026-12-27T02:56:53.000Z）
+✓  yy                   自算（…md5(enc(path?query) + "_" + body + md5(整秒毫秒) + "ooui")，与浏览器抓包逐字节一致）。
+                         实测服务端**根本不校验** yy（整个删掉也 200），所以它不是门禁
+✓  user_id / device_id  query 的 user_id = 578884…795（realUserID，不是 JWT 的 user.id 578884…149）；device_id = 20555806
+✓  会话快照             2026-11-17T03:04:33.794Z（2 个会话）
+```
+
+### 7.3 代码里怎么用
 
 ```js
-await p.auth.captureYY(ctx, { yy: '<32hex>', path: '*' });
-
-const list = await p.instances.list(ctx);
+const list = await p.instances.list(ctx);        // 实时（不再有 yy 门禁）
 console.log(list.stale, list.length, list.map((x) => `${x.id} ${x.name} ${x.status}`));
 
 const inst = list[0];
@@ -304,6 +380,14 @@ for await (const ev of p.agent.stream(ctx, inst.id, { timeoutMs: 60000 })) {
 }
 ```
 
+出问题先按这个顺序排（**别再怀疑 yy**）：
+
+| 现象 | 先看 |
+|---|---|
+| 401 空响应体 | `auth.state().realUserId` 有没有；`device_id` 是不是纯数字 |
+| 400 `invalid signature` | `x-signature` 的 body 与发出去的 body 是否同一份字节 |
+| 200 但字段为空 | 可能被网关拦成 HTML 了，看 `E_PARSE` 的 `body` |
+
 ### 7.4 发消息（可选，默认关）
 
 ```js
@@ -313,6 +397,7 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 ```
 
 如果 `send` 返回 400/422，多半是 body 猜错了（比如平台要 `messages[]` 或 `chat_type`）。这时不用改代码：传 `{body:{...}}` 覆盖，确认之后再把结论写回本 README 的"未验证"表。
+**注意**：yy 不校验这条结论只在 GET 读接口上验证过，写接口未实测 —— 这是 `send` 仍然默认关着的原因。
 
 ### 7.5 store 里会留下什么
 
@@ -320,9 +405,9 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 
 | 文件 | 内容 |
 |---|---|
-| `auth.json` | `{token, cookies, uuid, device_id, user_id, savedAt, exp, rotatedAt}` |
-| `yy.json` | `{entries:[{yy, path, capturedAt}], updatedAt}` |
-| `tree.json` | `{at, data}` 上次成功的 `/tree` 原始响应（缺 yy 时的 stale 来源） |
+| `auth.json` | `{token, cookies, uuid, device_id, user_id, realUserID, savedAt, exp, rotatedAt}` |
+| `yy.json` | `{entries:[{yy, path, capturedAt}], updatedAt}` —— **只剩调试用途**（覆盖自算值） |
+| `tree.json` | `{at, data}` 上次成功的 `/tree` 原始响应（请求失败时的 stale 来源） |
 | `config.json` | `{at, data}` 上次 `model.refresh` 的原始 config |
 
 ---
@@ -332,8 +417,8 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 | code | 何时 | 怎么办 |
 |---|---|---|
 | `E_NO_TOKEN` | 没有任何 token | `auth.login` / `MINIMAX_TOKEN` |
-| `E_NEED_YY` | 端点要 yy 而没命中 | `auth.captureYY`（或换只读端点） |
-| `E_UNAUTHORIZED` | 401/403 | token 轮换/过期 → 重抓；或这份 yy 对该端点无效 |
+| `E_UNAUTHORIZED` | 401/403 | ① token 轮换/过期 → 重抓；② query 的 `user_id` ≠ realUserID；③ `device_id` 不是纯数字 |
+| `E_HTTP` 400 `invalid signature` | 签名错 | 检查签名用的 body 与发出的 body 是否同一份字节 |
 | `E_UNVERIFIED_SEND` | 发消息开关没开 | 见第 6 节的四开关 |
 | `E_HTTP` | 其它非 2xx | 看 `status` / `body` |
 | `E_NETWORK` / `E_ABORTED` | 连不上 / 被取消 | 重试或加 `timeoutMs` |
@@ -344,8 +429,8 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 
 ## 9. 已知取舍
 
-- **yy 没逆出来就不硬猜**。缺 yy 一律早停 + 降级，宁可 stale 也不发注定 401 的请求。
+- **yy 照算但不依赖它**：算法还原到逐字节（§3），实测服务端不校验；既不拿它当门禁，也不拿它当"安全"来吹。
 - **不实现 `agent.interrupt`**：`status_type:3` 证明平台能中止，但中止接口没抓到，编一个假的比不支持更坏。
-- **轮询也受 yy 约束**：这是平台把 `/session/*` 全放在 yy 后面的结果，不是实现偷懒。所以"没有 yy 时 `watch` 还能看"是不成立的。
+- **写接口仍然默认关**：GET 读接口已证明不需要 yy，但 `POST /session/{id}/message` 的 body、以及"写接口是否也跳过 yy 校验"都没实测，宁可挡住。
 - **SSE 帧格式宽松解析**：宁可多吐 `raw`，也别把平台以后加的新字段吃掉。真跑出帧之后，把真实格式补进第 6 节。
 - **`token` 在 query 与头里各有一份**：两份都从同一个快照读，不会出现"头是新的、query 是旧的"。
