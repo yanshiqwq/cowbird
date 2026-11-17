@@ -36,23 +36,39 @@ lib/daemon/         ← 只被 daemon 用
 
 ## 凭据是怎么流动的
 
-`lib/creds.js` 是唯一的读取入口，所有命令都通过它拿凭据，因此**命令层不需要知道自己在哪种模式下运行**。
+一条规矩：**凭据只以「账号」为单位存放，账号只以目录为单位存在。**
 
 ```
-getToken(id)
-  ├─ 内存缓存（30s）
-  ├─ 本地 tokens/token-<id>.json 够新 → 直接用
-  ├─ daemon 在线 → GET /api/token/:id（daemon 会顺手刷新）
-  └─ 都没有 → 本地 session 自己发一次请求换
+~/.cowbird/platform/<平台>/accounts/<账号>/
+    device-token.json / auth.json    登录态（形状由平台自己定，内核不看内容）
+    conversations.json / jobs.json   驱动自己的缓存与游标
+    account.json                     内核写的名片（昵称、uid、登录时间）
 ```
 
-登录态同理（`loginState()`）：daemon 优先，本地文件兜底。
+内核构造 `ctx` 时把 `ctx.store` 指向这个目录，驱动只用 `ctx.store.read/write`，
+于是「多账号隔离」是目录带来的，而不是一段特判代码。同一个进程里换账号＝换一个 `ctx`。
+
+```
+渠道 = 平台 × 账号            workbuddy:main / qoder:alt
+  ctx.channel                'workbuddy:main'
+  ctx.account                'main'
+  ctx.store.dir              …/platform/workbuddy/accounts/main
+```
+
+按实例的短期凭据（WorkBuddy 的 E2B token）留在全局 `tokens/<实例 id>.json` ——
+实例 id 是平台侧主键，跨账号不冲突，没必要按账号再切一份。
 
 几个刻意的选择：
 
-- **daemon 只读不写**：CLI 请求过程中滚动出来的 `Set-Cookie` 只写本地文件。两边各维护一份副本，谁也别覆盖谁。两份 cookie 用同一个 UA，都能鉴权。
-- **daemon 不代理业务请求**。`exec` 的结果不经过 daemon 转发，CLI 拿到凭据后自己直连 E2B。这样长命令、大文件传输不会在 daemon 那里排队，daemon 也不需要懂 protobuf 帧。
-- **daemon 自己永远是 `local` 模式**（启动时设 `COWBIRD_LOCAL=1`）。否则它会通过 `creds` 请求到自己身上，形成回环。
+- **「没写账号」= 默认账号**：`--channel` > `COWBIRD_CHANNEL` > 配置 `accounts.<平台>` > `default`。
+  命令行里 `workbuddy/main` 与 `workbuddy` 的区别只是后者走默认账号。
+- **daemon 不代理业务请求**。`exec` 的结果不经过 daemon 转发，CLI 拿到凭据后自己直连数据面。
+  这样长命令、大文件传输不会在 daemon 那里排队，daemon 也不需要懂 protobuf 帧。
+- **daemon 自己永远是 `local` 模式**（启动时设 `COWBIRD_LOCAL=1`）。否则它会通过 daemon 客户端
+  请求到自己身上，形成回环。
+- **daemon 按渠道逐个动作**：一轮 heal 里 A 账号的实例和 B 账号的实例各用自己的 `ctx`；
+  唯一不能并行的东西（模块级缓存）在驱动里已经被清干净 —— 这是 `test/contract.js` 里
+  「两个账号的 store 互不相通」那条用例守着的东西。
 
 ## 三条生命周期，三种维持手段
 
@@ -117,5 +133,9 @@ getToken(id)
 
 - **daemon 是单点**。它挂了不影响 CLI 操作，但没人保活。补救办法是接受「实例可能被回收」，或者换个地方再起一个（幂等，不会互相干扰）。
 - **保活要配置目标**。不做「自动保活所有实例」—— 那会替你访问一堆你根本不用的会话，既浪费也容易误伤。
-- **`renew` 依赖真浏览器**。纯 HTTP 走不通那条 OIDC 链（网关会拦容器内发起的 token 请求）。所以镜像分成 slim / full 两档，不用续期就永远用不上 chromium。
-- **cookie 副本会分叉**。CLI 和 daemon 各有一份，正常情况下都能用；万一某一方被网关清了 cookie，另一方还能顶上。这是特性，也是为什么不做「强制单写」。
+- **`renew` 只对能续的平台有**。WorkBuddy 有 refreshToken，纯 HTTP 就能续（无需浏览器）；
+  码道/Qoder 是会话 cookie，不可续，过期只能重新登录。没有该能力的渠道在 renew 那一轮直接跳过。
+- **同名实例优先默认渠道**。跨渠道查找是「按顺序命中即停」，不做全局唯一性检查 ——
+  这样 `ls` 里看得到的名字永远 `exec` 得到，代价是重名时要写渠道前缀。
+- **账号名是目录名**。改名就是改目录（`cowbird account mv`），别手工把凭据挪到另一个目录，
+  否则 `account.json` 里的身份会对不上（下次登录会被当成「换了个人」而提示还原）。

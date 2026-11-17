@@ -1,33 +1,32 @@
-# 协议细节（2026-11-03 实测，2026-11-11 补鉴权）
+# 协议细节（2026-11-03 实测，2026-11-17 鉴权更新）
 
-## 〇、鉴权：cookie **+ UA**（2026-11-11 更正）
+## 〇、鉴权：accessToken（Bearer）
 
-以前记的是「鉴权就是登录 cookie，纯 HTTP 打过去 401 是因为 APISIX 卡 TLS 指纹」——
-**后半句是错的**，逐项排除如下：
+**现在的唯一鉴权方式**是 CodeBuddy 插件登录拿到的 `accessToken`，放在
+`Authorization: Bearer <token>` 里打 `/console/as/*`（含列表、详情、会话凭据、E2B exec）——
+全部 200。好处是不需要维护 cookie jar，也就不存在「UA 改一个字符就 401」这种事。
 
-| 变量 | 结果 |
+```bash
+curl -H "authorization: Bearer $TOKEN" https://www.workbuddy.cn/console/as/conversations/?page=1&pageSize=1
+```
+
+登录是「打印链接 + 轮询」（`lib/platform/workbuddy/device-login.js`）：
+
+| 步骤 | 接口 |
 |---|---|
-| TLS 指纹（curl_cffi 模拟 chrome / edge101 / safari17） | 全 401 |
-| HTTP 版本（node fetch h1.1 / http2 模块 h2） | 都 401 |
-| 静态页 `/agents/`、`/login/` | 纯 HTTP 200 ⇒ 站点本身不拦 node |
-| 带 / 不带 cookie | 响应逐字节相同（len=653）⇒ 服务端没读到我们的 cookie |
-| 浏览器真实 cookie + **浏览器 UA** 1:1 复放 | **200** |
-| 只把 UA 改一个字符（Chrome↔HeadlessChrome、版本号、大小写、去 `Edg/` 尾巴） | 全 401 |
+| 取授权链接 | `GET https://copilot.tencent.com/v2/plugin/auth/login?platform=VSCode&state=<uuid>` |
+| 轮询状态 | `GET …/v2/plugin/auth/token?state=<uuid>`（未授权返回 `code:11217` "login ing..."） |
+| 续期 | `POST …/v2/plugin/auth/token/refresh`，body `{refreshToken}` |
 
-⇒ APISIX 把有效会话跟 **`User-Agent` 精确绑定**（尾随空格可以，说明服务端会 trim）。
-所以 `state.json` 必须同时保存 `ua` 和 `cookies`，请求时原样发；
-`x-user-id` / `x-request-id` 是前端自己加的，**不是**鉴权所需（去掉照样 200）。
-
-另一个坑：响应里每次都带
-`session=; Path=/console; Max-Age=0; Expires=Thu, 01-Jan-70 ...`
-—— 这是**删除历史遗留的 `/console` 路径 cookie**，不是把 session 置空。
-合并 Set-Cookie 必须按 `name + path + domain` 复合键；只按 name 会把 `path=/` 那条
-4001 字符的有效 cookie 覆盖成空值，下一轮立刻 401。
+> 历史：2026-11-11 曾确认「老路（网页 cookie）把会话跟 `User-Agent` 逐字节绑定」——
+> 现在这条路的代码整条删掉了，只留结论备查：当时同一份 cookie 换 UA 就 401，
+> 且响应里的 `session=; Path=/console; Max-Age=0` 是**删**一条历史遗留 cookie，
+> 不能按 name 简单合并。**现在不需要关心这些**。
 
 ## 一、网页版接口
 
-baseURL `https://www.workbuddy.cn`，鉴权是**登录 cookie + 登录时的 UA**（见上）。
-`lib/session.js` 负责拿这份状态发纯 HTTP 请求，浏览器只在 `cowbird login` 时出现。
+baseURL `https://www.workbuddy.cn`，鉴权是 `Authorization: Bearer <accessToken>`（见上）。
+`lib/platform/workbuddy/lib/session.js` 负责发纯 HTTP 请求，浏览器完全不需要（登录也不用）。
 
 | 用途 | 接口 | 备注 |
 |---|---|---|
@@ -110,6 +109,6 @@ _codebuddy.ai/resolveInterruption   _codebuddy.ai/interaction_timeout
 
 ## 六、排查建议
 
-遇到 401 先怀疑 **UA 不匹配**，其次才是 cookie 过期：这两件事的响应体不一样，前者是默认的
-nginx 401 页，后者是业务 JSON（`invalid_token` + `session expired or invalid`）。
+遇到 401 先看**登录态是不是过期**（`cowbird account ls` 看剩余天数），再考虑接口本身变了。
+换成 Bearer 之后已经不存在「UA 不匹配」这种故障 —— 同一个 token 在任何 UA 下行为一致。
 长命进程（daemon）在 Windows 上必须挂在计划任务里，否则注销就没了。

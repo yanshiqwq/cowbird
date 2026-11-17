@@ -31,14 +31,14 @@
 云沙箱的容器不是你的机器，是平台的临时资源。有两个坑：
 
 1. **没人访问就会被回收。** 控制台上显示「completed」只说明会话结束了，不代表容器还在。
-2. **登录态有期限。** accessToken 约 28 天，带 refreshToken 可自动续；换账号＝重新登录一次。
+2. **登录态有期限。** accessToken 约 28 天，带 refreshToken 可自动续；换账号＝重新登录一次（多账号可以共存，见下文）。
 
 于是这件事得有人一直做：
 
 ```
         ┌──────────────┐        每隔 10 分钟 exec 一下
         │  cowbird-daemon│ ───────────────────────────────► 云端实例
-        │  （常驻）     │        到期前刷 token / 换 cookie
+        │  （常驻）     │        到期前刷 token / 续登录态
         └──────┬───────┘
                │  HTTP（凭据 + 状态）
         ┌──────▼───────┐
@@ -71,6 +71,7 @@ docker compose up -d
 ```bash
 # 1. 登录（打印链接，在微信里打开授权）
 cowbird login
+#   同一个平台还想挂第二个账号：cowbird login --as alt
 
 # 2. 看看有哪些实例
 cowbird ls
@@ -92,9 +93,9 @@ cowbird daemon status
 # 服务器上
 docker compose up -d          # 或者 npm i -g cowbird && cowbird-daemon
 
-# 把登录态推过去（token，一个文件）
+# 把登录态推过去（一个 token 文件，落在账号目录里）
 cowbird login                      # 本机授权
-scp ~/.cowbird/platform/workbuddy/device-token.json 服务器:/path/to/data/platform/workbuddy/
+scp ~/.cowbird/platform/workbuddy/accounts/default/device-token.json 服务器:/path/to/data/platform/workbuddy/accounts/default/
 
 # 本机指向那台 daemon
 cowbird daemon pair http://服务器:8787 --token <它生成的令牌>
@@ -105,9 +106,9 @@ cowbird daemon status
 
 | 命令 | 作用 |
 |---|---|
-| `ls [--refresh] [--all]` | 列实例：状态、最近活动、凭据剩余 |
+| `ls [--channel <渠道>] [--refresh] [--all]` | 列实例：状态、最近活动、凭据剩余。默认把所有渠道合起来列 |
 | `info <实例> [--api-only]` | 探活：CPU 配额 / 可见核 / 内存 / uptime |
-| `create <名字>` | 新建实例（= 新会话 + 新容器） |
+| `create <名字> [--channel <渠道>]` | 新建实例（= 新会话 + 新容器） |
 | `rm <实例> [--yes]` | 删除，默认 dry-run |
 | `rename <实例> <新名字>` | 改名 |
 | `exec [--timeout <秒>] <实例> <命令...>` | 在容器里执行，退出码透传。实例之后全归命令，`exec 01 ls -la` 不用加引号 |
@@ -116,13 +117,52 @@ cowbird daemon status
 | `watch [--duration <秒>] <实例>` | 连上去看一会儿输出 |
 | `prompt [--wait <秒>] <实例> <文本...>` | 给会话发一句话（同样：实例之后全是文本） |
 | `keepalive [选项] <实例>` | 长驻：把会话钉在「等回答」上，防闲置回收 |
-| `login [--max-wait <分钟>]` | 登录：打印链接，微信里授权 |
-| `doctor` | 体检：数据目录 / 登录态 / 接口 / 实例 / daemon |
+| `login [--as <账号>]` | 登录：打印链接，微信里授权 |
+| `account [ls\|use\|rm\|mv]` | 账号与渠道：看有哪些、切默认、删掉 |
+| `doctor` | 体检：数据目录 / 平台 / 渠道 / 登录态 / 接口 / 实例 / daemon |
 | `daemon ...` | 起停、状态、日志、保活目标、连远程 |
 
-实例可以用三种写法引用：完整 id、名字、短序号（`01` 匹配 `work-01`）。
+实例可以用四种写法引用：完整 id、名字、短序号（`01` 匹配 `work-01`）、带渠道的
+`渠道/引用`（`qoder:alt/01`）—— 后者用于同名实例分属不同账号的情况。
 
-全局开关：`--local` 这次不走 daemon；`--remote <url> [--token <t>]` 这次换成另一台 daemon。
+全局开关：`--channel <平台[:账号]>` / `--platform <id>` / `--account <名字>` 指定渠道；
+`--local` 这次不走 daemon；`--remote <url> [--token <t>]` 这次换成另一台 daemon。
+
+## 多账号与多渠道
+
+一个平台可以挂**多个账号**，几个平台可以**同时**挂着 —— 两边都不需要开第二份配置：
+渠道（`平台:账号`）是唯一寻址单位，实例、登录态、保活目标都挂在渠道上。
+
+```bash
+# 加第二个账号（同一个平台）
+cowbird login --as alt
+
+# 看现在有哪些渠道、各自登录的是谁、还剩几天
+cowbird account ls
+#   渠道               身份     凭据剩余
+# * workbuddy:default  alice  27.9d
+#   workbuddy:alt      bob    3.0d
+#   qoder:default      alice  未知
+
+# 默认渠道决定不带前缀的引用先找谁
+cowbird account use workbuddy:alt
+
+# 同一条命令跨平台/跨账号照常用；找不到会去别的渠道接着找
+cowbird ls
+cowbird exec qoder:default/01 "uname -a"
+cowbird --channel minimax:default info 464000000000000 --api-only
+```
+
+几条规矩：
+
+- **账号就是目录**。`~/.cowbird/platform/<平台>/accounts/<账号>/`，删账号等于删目录
+  （`cowbird account rm`）。凭据、缓存、游标全在这个目录里，账号之间天然互相看不见。
+- **不加 `--as` 时若授权的是另一个账号，登录会还原原凭据并提示**，不会把现有账号顶掉。
+- **名字优先默认渠道**：两个渠道有同名实例时，不带前缀的引用走默认渠道；要指定就写前缀。
+- `daemon` 也认渠道：保活目标记下它属于哪个渠道，一轮 heal 里各用各的凭据；
+  `refresh` / `renew` 会走遍所有支持该能力的渠道。
+- 旧布局（凭据直接躺在 `platform/<平台>/` 下）会在升级后第一次运行时**自动搬进
+  `accounts/default/`**，不需要手工迁移。
 
 ## daemon
 
@@ -158,13 +198,15 @@ cowbird daemon install             # 生成 systemd / 计划任务配置（只�
     "scriptsDir": "./sandbox",
     "timeoutSec": 120,
     "targets": [
-      { "id": "2123456789012345678", "name": "sb-01", "script": "heal/sb-heal-tun.sh" },
-      { "id": "2118716898270863360", "name": "sb-02" }
+      { "id": "2123456789012345678", "name": "sb-01", "channel": "workbuddy:default", "script": "heal/sb-heal-tun.sh" },
+      { "id": "2118716898270863360", "name": "sb-02", "channel": "workbuddy:alt" }
     ]
   }
 }
 ```
 
+- `targets[].channel` 省略就用默认渠道。用 `cowbird daemon targets add` 加目标时会**写死**
+  当时解析到的渠道 —— 以后换了默认账号，这个目标仍然跟着原来那个账号走。
 - `targets[].script` 相对 `scriptsDir` 解析（绝对路径则原样用）；省略就是探针模式。
 - 脚本的输出按前缀分拣：`ACTION:` / `ERROR:` 收进本轮记录并单独打一行，`STATE:` 作为状态快照。
   **`ERROR:` 不算本轮失败**（那通常是要人去处理的隐患，不是链路断了），但会在
@@ -230,8 +272,8 @@ docker run -d --name cowbird-keepalive-01 --restart unless-stopped -u 1000:1000 
   /opt/cowbird/bin/cowbird.js keepalive <实例id> --nudge 300
 ```
 
-`/srv/cowbird-data` 里只需要两样：`platform/workbuddy/device-token.json`（accessToken + refreshToken）和 `tokens/`。
-从旧部署迁移时把这一个 token 文件拷过去即可 —— 别拷旧的 state.json（cookie 那条路已经删了）。
+`/srv/cowbird-data` 里只需要两样：`platform/workbuddy/accounts/<账号>/device-token.json`（accessToken + refreshToken）和 `tokens/`。
+从旧部署迁移时把 token 文件拷到 `accounts/default/` 下即可 —— 旧布局也会被自动搬。
 
 配置默认值在 `cowbird.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
 凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
@@ -262,12 +304,12 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 | 方法 | 路径 | 用途 |
 |---|---|---|
 | GET | `/health` | 探活，无鉴权，不泄露内容 |
-| GET | `/api/status` | 状态 + 最近各轮结果 + 登录态剩余 |
-| GET/PUT | `/api/state` | 读 / 推登录态（cookie + UA） |
-| GET | `/api/token/:id` | 取实例的 E2B 凭据 |
+| GET | `/api/status` | 状态 + 最近各轮结果 + 每个渠道的登录态剩余 |
+| GET/PUT | `/api/state` | 读 / 推某个渠道的登录态（`?channel=` 不写就用默认渠道） |
+| GET | `/api/token/:id` | 取实例的访问凭据（`?channel=` 同上） |
 | POST | `/api/heal` | 立即保活一轮 |
 | POST | `/api/refresh` | 立即刷 token |
-| POST | `/api/renew` | 立即续登录态 |
+| POST | `/api/renew` | 立即续登录态（走遍所有能续的渠道） |
 | PUT | `/api/targets` | 改保活目标 |
 | GET | `/api/logs?limit=100` | 最近日志 |
 
@@ -275,32 +317,35 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 
 ## 几个必须知道的坑
 
-**401 基本都是 UA 对不上。** 这套接口把会话跟 `User-Agent` 逐字节绑定：同一个 cookie，UA 一模一样就 200，改一个版本号就 401。所以 `state.json` 里存了 `ua`，别手动编辑，也别拿同一份 cookie 换个客户端去试。看起来像 TLS 指纹，其实不是（模拟 Chrome 指纹照样 401）。
+**账号是目录，不是配置项。** 一个平台的多份登录态就是 `platform/<平台>/accounts/` 下的多个目录。
+换账号不是改配置，是换目录；`cowbird account rm` 就是删目录。别把两个账号的凭据手工拷进同一个目录。
 
-**Set-Cookie 要按 name+path+domain 合并。** 服务端每次响应都会下发 `session=; Path=/console; Max-Age=0`，那是在删一条历史遗留的 `/console` 路径 cookie。只按 name 合并会把 `path=/` 那条 4001 字符的好 cookie 覆盖成空值，下一轮必 401。
+**同名实例优先默认渠道。** 两个账号里都有 `work-01` 时，不带前缀的 `cowbird exec work-01` 走默认渠道。
+要指定就写 `workbuddy:alt/work-01`。
 
 **`nproc` 会说谎。** 它读 CPU 亲和性（cpuset），不是 cgroup 配额。共享宿主的池子里 `nproc` 能看到 32，实际只给你 4 核的带宽。`cowbird info` 特意把「配额 / 可见 / nproc」分三行列出来。
 
 **成功时没有 exitCode。** E2B 的 end 帧是 proto3 JSON，成功时 `exitCode` 字段被省略。见到 end 而没写退出码 ⇒ 就是 0。
 
-**登录态写盘前会留上一版。** 每次覆盖 `state.json` 都会把上一份存成 `state.json.last-good`。滚动刷新写坏或误清空时，`cp $COWBIRD_HOME/state.json.last-good $COWBIRD_HOME/state.json` 就能回到上一份可用凭据。
+**id 必须写成字符串。** 这些 id 超过 2^53，写成 JSON 数字会被 JS 静默舍入，最后表现为「实例不存在」。
 
 ## 目录
 
 ```
-bin/cowbird.js          CLI 入口与分发
-bin/cowbird-daemon.js   守护进程入口
-lib/session.js          登录态
-lib/creds.js            凭据
-lib/cloud.js            控制面
-lib/e2b.js              数据面
-lib/acp.js              ACP 客户端
-lib/keepalive.js        对话侧保活
-lib/api.js              daemon 的 HTTP 客户端
-lib/daemon/             守护进程：scheduler / heal / renew / server
-commands/               子命令
-docs/protocol.md        接口与协议细节
-docs/architecture.md    架构详情
+bin/cowbird.js                 CLI 入口与分发
+bin/cowbird-daemon.js          守护进程入口
+lib/config.js                  数据目录与配置
+lib/browser.js                 登录用的浏览器助手（playwright，可选依赖）
+lib/platform/                  内核：契约 / 注册表 / 渠道 / exec 编排 / 事件流
+lib/platform/workbuddy/        驱动：WorkBuddy（E2B envd + ACP）
+lib/platform/codearts/         驱动：码道 CodeArts（内核 shell + SSE）
+lib/platform/qoder/            驱动：Qoder（沙箱 MCP JSON-RPC）
+lib/platform/minimax/          驱动：MiniMax（无 exec 通道）
+lib/daemon/                    守护进程：scheduler / heal / server / logstore
+commands/                      子命令
+docs/protocol.md               接口与协议细节
+docs/providers.md              驱动契约与各平台能力对照
+docs/architecture.md           架构详情
 ```
 
 ## 变更记录

@@ -3,6 +3,55 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.10.0] - 2026-11-17
+
+**多账号与多渠道共存：一个平台可以挂多个账号，几个平台可以同时挂着。**
+
+渠道（`平台:账号`）成为唯一寻址单位 —— 实例、登录态、保活目标、daemon 的每一轮动作都挂在渠道上。
+
+### 新增
+
+| 能力 | 怎么用 |
+|---|---|
+| 加第二个账号 | `cowbird login --as alt`（不加 `--as` 就是给默认账号续一次） |
+| 看有哪些渠道 | `cowbird account ls`（身份 / 凭据剩余 / 是否默认，一行一个渠道） |
+| 切默认渠道 | `cowbird account use workbuddy:alt` |
+| 删账号 / 改名 | `cowbird account rm workbuddy:alt` / `cowbird account mv 旧 新` |
+| 指定渠道 | 全局开关 `--channel <平台[:账号]>`、`--account <名字>`；或在引用里写 `qoder:alt/01` |
+| 聚合列表 | `cowbird ls` 默认把所有已登录渠道合起来列，多一个「渠道」列 |
+| 跨渠道找实例 | 默认渠道没命中会自动去别的渠道找，`ls` 里看得到的名字 `exec` 一定找得到 |
+| daemon 跨渠道 | 保活目标记下渠道；`refresh` / `renew` 走遍所有支持该能力的渠道 |
+| doctor 看渠道 | 每个「平台:账号」一行，掉线/过期单独标色 |
+
+`--channel` / `--account` 都可以写在命令后面（`cowbird ls --channel minimax`），
+环境变量是 `COWBIRD_CHANNEL` / `COWBIRD_ACCOUNT`。
+
+### 变化
+
+- 数据目录：`platform/<平台>/<凭据文件>` → `platform/<平台>/accounts/<账号>/<凭据文件>`。
+  **老布局首次运行自动搬进 `accounts/default/`**，不用手工迁移；搬的时候会写一份 `account.json`（身份名片）。
+- 不加 `--as` 却授权了另一个账号时，登录会**还原原凭据并提示**，不会把现有账号顶掉。
+- daemon 的 `/api/state`、`/api/token/:id` 认 `?channel=`；`/api/status` 多一个 `channels` 数组。
+- `heal` 目标多了可选字段 `channel`；没有执行通道的平台（MiniMax）在 heal 里算「跳过」而不是「失败」。
+
+### 修掉
+
+| 问题 | 影响 |
+|---|---|
+| WorkBuddy 的 `agent.LIVE` 按会话 id 索引 | 两个账号撞同一 id 时，回答会被回填到别人的连接上（多账号下的串号事故） |
+| `auth.ttlDays` 隐式回读磁盘 | 多账号下读到的是「最后写的那份」，不是传入那次登录态 |
+| 会话列表缓存写在全局 `~/.cowbird/conversations.json` | A 的列表会覆盖 B 的，改名还会串名字 |
+| `ls` 的「凭据剩余」读错缓存文件 | 该列此前实际恒空（读的是没人写的 `tokens/token-<id>.json`） |
+| 码道 `transport.frames()` 把 `{value,done}` 当字节 | 真 SSE 一接上就 `TypeError`（自检全用打桩，一直没抓到）；补了一条走真字节流的用例 |
+| 码道 / doctor 里 `require('../../browser')` 悬空 | 那一层在解耦时被搬走了，`cowbird login --platform codearts` 会 `MODULE_NOT_FOUND`；恢复成通用 `lib/browser.js`（playwright 可选依赖） |
+| 文档里的 cookie + UA 时代说法 | README / protocol / architecture 与实际实现对齐（鉴权只有 accessToken · Bearer） |
+
+### 升级注意
+
+- 数据会自动搬，**但 `~/.wbsbx` 不会**（0.9.0 起就不再认）。还留着的话手动 `mv ~/.wbsbx ~/.cowbird`。
+- 老账号全部落在 `accounts/default/` 下，原来的用法一个字都不用改。
+- daemon 需要重启一次才会按渠道跑（`cowbird daemon restart`）。
+
 ## [0.9.0] - 2026-11-17
 
 **内测期，直接破坏性清理：删掉 `wbsbx` 时代的所有兼容层。**

@@ -61,12 +61,30 @@ module.exports = defineProvider({
 | 字段 | 说明 |
 |---|---|
 | `ctx.provider` | provider 自身（互调方便） |
-| `ctx.paths` | 数据目录下的标准路径（state / tokens / logs…） |
+| `ctx.account` | 账号名（`main` / `default`…）——**同一个平台可以有多份登录态共用你的驱动** |
+| `ctx.channel` | `平台:账号`，例如 `workbuddy:main` |
+| `ctx.paths` | 数据目录下的标准路径（tokens / logs…） |
 | `ctx.config()` | 读全局配置 |
 | `ctx.effective` | provider `defaults` + 用户 `platforms.<id>` 合并结果（取默认模型用这个） |
-| `ctx.store` | 本驱动的私有 KV（`read/write/remove`，落在 `<数据目录>/platform/<id>/`，600） |
+| `ctx.store` | 本驱动**本账号**的私有 KV（`read/write/remove`，落在 `<数据目录>/platform/<id>/accounts/<账号>/`，600） |
 | `ctx.log` | 命令层注入的日志函数（默认空） |
 | `ctx.now()` | 当前时间（测试可注入） |
+
+### 账号隔离（写驱动时必须读这一段）
+
+一个平台可以挂多个账号，daemon 会在**同一个进程里**交替用不同账号的 `ctx` 调你。所以：
+
+- 登录态、cookie/token、会话列表缓存、游标、隧道……**全部走 `ctx.store`**，
+  不要拼 `~/.cowbird/...`，不要 `require('../../config')` 之后自己落盘。目录按账号切分，
+  这一条做到了，多账号就是免费的。
+- **不要用模块级变量缓存账号数据**（`let cache = null`、`new Map()` 记住上次的 token…）。
+  真要缓存，key 必须含 `ctx.store.dir`；能不做就不做 —— 读盘几微秒，串号是事故。
+- 平台级配置（baseUrl、默认模型、能力和 limits）放 `defaults`，那本来就与账号无关。
+- 按实例的短期凭据（如 E2B 的 `X-Access-Token`）若实例 id 在平台内全局唯一，可以留在全局
+  `tokens/<id>.json`；不确定唯一就挪进 `ctx.store`。
+
+自检里请加两条：同一 provider 两个账号的 `store.dir` 不同、A 写的凭据 B 读不到
+（`lib/platform/workbuddy/selftest.js` 的 `makeCtx(账号)` 就是现成写法）。
 
 ---
 
@@ -192,6 +210,7 @@ COWBIRD_PLATFORM_MODULE=/path/to/my-provider.js cowbird ls
 | 唤醒要花钱 | `exec.wake` 常常等于一轮最小 LLM 回合（0.03–0.2 credit）。内核有唤醒预算（每小时 2 次/每天 10 次）与 flake 重试，驱动只需实现 `wake` |
 | 截断 ≠ 成功 | 200 + 空输出 + 状态空，通常是平台超时截断；要标 `truncated:true` |
 | `busy` 不是失败 | 上一个命令还在跑，抛 `E_BUSY`，内核会退避重试 |
-| 认证态会轮换 | 不要缓存 token；每次请求从 `ctx.store` 重读 |
+| 认证态会轮换 | 不要缓存 token；每次请求从 `ctx.store` 重读（也是多账号不串的前提） |
+| 模块级缓存会串号 | 同一进程会交替用不同账号的 `ctx`，任何「记住上次的凭据」的写法都是事故 |
 | 未登录的判定各不相同 | 401 / 200+空体+重定向头 / 业务 JSON，`transport` 里统一翻成一个可识别的 `AuthError` |
 | 别假装成功 | 没实测过的接口就抛 `E_UNSUPPORTED` 并在 README 写清楚 —— 静默失败比报错更难查 |
