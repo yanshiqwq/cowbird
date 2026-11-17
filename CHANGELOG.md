@@ -3,6 +3,53 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.5.0] - 2026-11-17
+
+### 新增
+
+- **平台驱动架构**：平台实现全部收进 `lib/platform/`，内核只认 `Instance / Access / Event /
+  ExecResult / FileEntry`。加平台 = 新建 `lib/platform/<id>/` 并实现契约，内核零改动。
+  - `lib/platform/contract.js`：`CAP` 能力位、`EVENT` 归一化事件、`defineProvider()` 校验
+    （声明了能力却没有实现会直接报错）。
+  - `lib/platform/index.js`：注册表 + 门面 + `ctx`（`store` / `effective` / `log`）；
+    支持 `WBSBX_PLATFORM_MODULE=<路径|包名>` 挂第三方驱动。
+  - `lib/platform/exec.js`：执行编排 —— `ensureReady()`（唤醒预算 + flake 重试）、
+    按 provider 的 `limits` 决定「同步 / 后台 / 拒绝」、`E_BUSY` 退避。
+  - `lib/platform/stream.js`、`target.js`：事件流收集与平台无关的实例引用解析。
+- **四个平台驱动**（共 224 项离线自检）：
+  - `workbuddy`：适配现有 `lib/{session,cloud,e2b,acp,browser}`，15 项能力；
+    `info` 同时给 cgroup 真实配额与 `nproc` 可见量；ACP 历史重放默认跳过。
+  - `codearts`：cookie + `cftk`、具名 SSE 15 事件、内核 `/9800` shell（30s 截断识别、
+    `busy`→`E_BUSY`）、`files/*`、`answers` 怪形状、cgroup v1/v2。
+  - `qoder`：仅 cookie、event-sourcing 增量、`preview/grant` → MCP `tools/call`
+    （120/600s + 原生后台）；`agent.answer` 未实测故明确不支持。
+  - `minimax`：JWT + 自算 `x-signature`；`yy` 未逆出 → `E_NEED_YY` 且**绝不发半成品请求**；
+    **没有执行通道**，作为「能力降级」的参照实现。
+- `wbsbx platform [show|ls|use <id>]` 与全局开关 `--platform <id>`：
+  一条命令看清平台能做什么、同步上限多少、要不要唤醒。
+- `test/guard.js`：解耦棘轮 —— 内核里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。
+- `docs/providers.md`：加平台指南（契约速查、四种执行面模板、事件映射、八条踩坑）。
+
+### 变更
+
+- `exec` / `ls` / `create` / `rm` / `rename` / `info` / `put` / `get` / `doctor` 改走平台门面。
+- `exec`：短选项与命令串的边界仍是「实例之后全是命令」，但**选项一律写在实例前**；
+  同步/后台由平台 `limits` 决定，不再由命令硬编码超时。
+- `info`：明确区分「配额」（cgroup）与「可见」（`nproc`/`free`），后者可能远大于前者。
+- `doctor`：新增「平台」一行与驱动自己的体检项；同名行以驱动为准。
+- `npm test` 改为 `contract + guard + smoke` 三件套。
+
+### 修复
+
+- 能力缺失（例如在不支持 exec 的平台上执行 `exec`）退出码改为 **2**，与「命令失败=1」区分。
+- `doctor` 的 level 词表容错：驱动写 `error`/`good`/`pass` 也能正确渲染与计数。
+
+### 未完成（下一版）
+
+- `history` / `watch` / `prompt` / `keepalive` / `login` / `cookie` / daemon 三条循环
+  仍走旧的 WorkBuddy 实现（`test/guard.js` 的 BASELINE 里列了这 16 处），
+  迁移完即可删掉 `lib/{cloud,session,e2b,acp}`。
+
 ## [0.4.0] - 2026-11-16
 
 ### 新增
