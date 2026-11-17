@@ -10,6 +10,7 @@ cowbird 现在把「平台」关在 `lib/platform/` 里。**加一个平台 = �
 | 码道 CodeArts | `lib/platform/codearts/` | 具名 SSE、预览代理直达内核、30s 截断与 busy 重试 |
 | Qoder | `lib/platform/qoder/` | event-sourcing 增量拉取、preview/grant → MCP tools/call |
 | MiniMax | `lib/platform/minimax/` | **没有执行通道**时怎么优雅降级、签名鉴权 |
+| TRAE | `lib/platform/trae/` | 两层令牌（cookie → JWT）、把三层嵌套的消息还原成归一事件、能力位诚实地"少声明" |
 | 样例 | `lib/platform/_example/` | 80 行跑通全部契约（也是契约测试的桩） |
 
 ---

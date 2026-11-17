@@ -3,6 +3,36 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.13.0] - 2026-11-17
+
+**新增第五个平台：TRAE（字节 `work.trae.cn`）。** 一个会话 = 一台云端 KVM 真 VM；但网页版**没有直连执行通道**，所以这次是「能管能看，不能 exec」。
+
+### 新增
+
+| 项 | 说明 |
+|---|---|
+| `lib/platform/trae/` | 驱动：`auth` / `instances.{list,get,create,rename,remove}` / `agent.{stream,send,history,interrupt}` / `doctor` |
+| 登录 | `cowbird --platform trae login --cookie "<串>"`（网页版没有可脚本化的登录流，只有 cookie） |
+| 两层令牌 | cookie → `POST /cloudide/api/v3/common/GetUserToken` → `Cloud-IDE-JWT`（8h，`x-cloudide-token`），按账号缓存、过期前 5 分钟自动换 |
+| `warm` 覆盖 | daemon 每 10 分钟 `CheckLogin` 一次，让 cookie 会话保持活跃 |
+| 历史导出 | `cowbird --platform trae history <id>`（把三层嵌套消息摊成可读行） |
+| 全离线自测 | 19 项：cookie 解析、登录校验、status 映射、会话归一、消息 → 归一事件、分页、请求形状、能力位 |
+
+### 能力声明（诚实的少声明）
+
+声明了 `auth / instances.list|create|rename|remove|meta / agent / agent.interrupt`。
+**不声明** `exec / exec.background / fs / exec.wake` —— 网页版 156 条端点里没有
+terminal/pty/shell/exec，沙箱里的真 shell 只有三个入口（agent 的 Shell 工具、VNC、IDE 通道）。
+`cowbird exec` 因此按契约直接报能力缺失（退出码 2）。
+
+### 已知未打通（写在这里，免得下次重新查）
+
+- **`agent.send`（`cowbird prompt`）**：请求体形状未知，13 种组合全被上游
+  `400 {"code":991102,"message":"invalid parameter"}`。驱动会明确报「这条未打通」，不装死。
+- **沙箱数据面**（`agent-sandbox-*.trae.cn/explorer/<sid>` 的 WebSocket）：握手无条件 101，
+  鉴权在应用层；HTTP 子路径 401，错误体显示网关把凭据转给控制面（`trae-api-cn.mchost.guru`）
+  回查。打到 200 后 `exec`/`fs` 才有可能加进来 —— 届时只加能力位，内核不用改。
+
 ## [0.12.0] - 2026-11-17
 
 **daemon 多了第四根循环：`warm`（登录态保活）。** 给没有 refresh_token 的平台上一条可能的"续命"路。
