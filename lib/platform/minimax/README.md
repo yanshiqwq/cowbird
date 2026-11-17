@@ -356,7 +356,7 @@ $ node bin/cowbird.js --platform minimax history 464000000000001 --json
 
 ```console
 $ node bin/cowbird.js --platform minimax doctor
-✓  登录态               token eyJhbGciOi…b5HI（来源 store，到期 2026-12-27T02:56:53.000Z）
+✓  登录态               token eyJhbGciOi…（已截断，来源 store）
 ✓  yy                   自算（…md5(enc(path?query) + "_" + body + md5(整秒毫秒) + "ooui")，与浏览器抓包逐字节一致）。
                          实测服务端**根本不校验** yy（整个删掉也 200），所以它不是门禁
 ✓  user_id / device_id  query 的 user_id = 578884…795（realUserID，不是 JWT 的 user.id 578884…149）；device_id = 20555806
