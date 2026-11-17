@@ -127,14 +127,6 @@ function frame(obj) {
     assert.strictEqual(cfg.PATHS.config, path.join(TMP, 'cowbird.json'));
     assert.strictEqual(cfg.PATHS.daemonState, path.join(TMP, 'daemon-state.json'));
   });
-  ok('老环境变量名有兜底（WB_CLOUD_HOME → COWBIRD_HOME）', () => {
-    const before = process.env.COWBIRD_HOME;
-    delete process.env.COWBIRD_HOME;
-    process.env.WB_CLOUD_HOME = '/tmp/legacy-home';
-    assert.strictEqual(cfg.envVal('COWBIRD_HOME'), '/tmp/legacy-home');
-    delete process.env.WB_CLOUD_HOME;
-    if (before !== undefined) process.env.COWBIRD_HOME = before;
-  });
 
   console.log('\nkeepalive 策略');
   function mkKp(over) {

@@ -2,7 +2,6 @@
 
 [![CI](https://github.com/yanshiqwq/cowbird/actions/workflows/ci.yml/badge.svg)](https://github.com/yanshiqwq/cowbird/actions/workflows/ci.yml)
 
-> **非官方项目。** 用你自己的账号登录、只管你自己的实例，不自带任何凭据、不做提权、不绕过计费。
 > 使用的是各平台的网页接口，**可能违反其服务条款**，风险自负。详见 [DISCLAIMER.md](DISCLAIMER.md)。
 
 **把各大网页 agent 自带的沙箱 shell，包装成一套统一的云沙箱管理器。**
@@ -25,7 +24,7 @@
 | Qoder | 沙箱 MCP（JSON-RPC） | 120s 默认 / 600s 最大，支持原生后台 |
 | MiniMax | **没有**执行通道 | 只读：列表 / 详情 / 历史 |
 
-> 早期版本叫 `wbsbx`（WorkBuddy-only）。改名后旧命令与环境变量仍可用，见 [CHANGELOG](CHANGELOG.md)。
+> 原名 `wbsbx`（WorkBuddy-only）。0.9.0 起旧命令名、旧环境变量、旧数据目录的兼容层已全部移除。
 
 ## 它到底解决什么问题
 
@@ -286,43 +285,23 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 
 **登录态写盘前会留上一版。** 每次覆盖 `state.json` 都会把上一份存成 `state.json.last-good`。滚动刷新写坏或误清空时，`cp $COWBIRD_HOME/state.json.last-good $COWBIRD_HOME/state.json` 就能回到上一份可用凭据。
 
-## 安全
-
-- 凭据（cookie、UA、token）全部落本地 `$COWBIRD_HOME`，权限 600，不上传任何地方。
-- **本项目不是官方客户端**，见 [DISCLAIMER.md](DISCLAIMER.md)。
-- daemon 默认只听 `127.0.0.1`。跨机用请走 SSH 隧道或反代 + 令牌，别把 8787 直接暴露到公网。
-- `login` 是唯一会打开浏览器窗口的动作，登录完就关。
-- 这个工具做的事等于「你自己在控制台点来点去」，没有提权，也没有绕过任何权限。
-
 ## 目录
 
 ```
-bin/cowbird.js            CLI 入口与分发
-bin/cowbird-daemon.js     守护进程入口
-lib/session.js          登录态 → 请求（cookie jar + UA + Set-Cookie 合并）
-lib/creds.js            凭据门面：daemon 优先、本地兜底
-lib/cloud.js            控制面接口（/console/as/*）
-lib/e2b.js              数据面（exec / put / get，5 字节帧）
-lib/acp.js              ACP 客户端（对话历史 / watch / prompt）
-lib/keepalive.js        长驻保活：连接循环 + 挂起提问 + 催话
+bin/cowbird.js          CLI 入口与分发
+bin/cowbird-daemon.js   守护进程入口
+lib/session.js          登录态
+lib/creds.js            凭据
+lib/cloud.js            控制面
+lib/e2b.js              数据面
+lib/acp.js              ACP 客户端
+lib/keepalive.js        对话侧保活
 lib/api.js              daemon 的 HTTP 客户端
-lib/daemon/             守护进程：scheduler / heal / renew / server / 日志
-commands/               每个子命令一个文件
-docs/protocol.md        接口与协议细节（含踩过的坑）
-docs/architecture.md    client/daemon 分层与扩展点
-test/smoke.js           离线冒烟：纯逻辑，不联网、不需要登录态
-test/halfopen.js        半开连接回归：起本地假 ACP 服务端，实测静默失效
+lib/daemon/             守护进程：scheduler / heal / renew / server
+commands/               子命令
+docs/protocol.md        接口与协议细节
+docs/architecture.md    架构详情
 ```
-
-## 开发
-
-```bash
-npm test          # 离线冒烟（29 项）：参数解析、cookie jar、401 不写盘、帧解析、keepalive 策略
-npm run test:net  # 半开连接回归（8 项）：要起本地 TCP 服务，约 20 秒
-```
-
-两套测试的分工：`smoke` 跑纯函数与可注入的桩，必须秒级；`halfopen` 专门打"看起来还连着、
-其实早已失效"的连接问题 —— 这类 bug 只能拿真 socket 复现，放进 `smoke` 会把日常测试拖慢。
 
 ## 变更记录
 

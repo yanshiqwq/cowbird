@@ -3,6 +3,25 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.9.0] - 2026-11-17
+
+**内测期，直接破坏性清理：删掉 `wbsbx` 时代的所有兼容层。**
+
+| 删掉的东西 | 说明 |
+|---|---|
+| `bin/wbsbx-alias.js` 与 `wbsbx` 这个 bin | 只剩 `cowbird` / `cowbird-daemon` |
+| `WB_CLOUD_HOME` / `WBSBX_*` 环境变量兜底 | 只认 `COWBIRD_*`；旧名不再提示、不再生效 |
+| `~/.wbsbx` 自动迁移 | 数据目录只有 `~/.cowbird` |
+| `cfg.PROFILE`（cookie 时代留给浏览器登录的 profile 目录） | 登录已无头化，没人用 |
+| wrapper 里的旧名提示分支 + `/usr/local/bin/wbsbx` 软链 | 只留 `/usr/local/bin/cowbird` |
+
+`lib/config.js` 因此短了一截：不再有 `OLD_ENV` 映射与 `migrateOldHome()`。
+
+### 升级注意
+
+- 环境变量请改用 `COWBIRD_*`；`~/.wbsbx` 不会再被自动复制。
+- 命令名只有 `cowbird`。脚本里还写着 `wbsbx` 的会直接 command not found（内测期就这样，早改早好）。
+
 ## [0.8.0] - 2026-11-17
 
 **改名：`wbsbx` → `cowbird`。** 名字来自牛鹂 —— 一种自己不筑巢、把蛋下在别人巢里让别人养大的鸟。

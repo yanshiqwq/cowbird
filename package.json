@@ -1,11 +1,10 @@
 {
   "name": "cow-bird",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "把各大网页 agent 自带的沙箱 shell 包装成统一的云沙箱管理器（多平台驱动 + 免 LLM 直连执行 + 保活）",
   "bin": {
     "cowbird": "bin/cowbird.js",
-    "cowbird-daemon": "bin/cowbird-daemon.js",
-    "wbsbx": "bin/wbsbx-alias.js"
+    "cowbird-daemon": "bin/cowbird-daemon.js"
   },
   "files": [
     "bin/",
