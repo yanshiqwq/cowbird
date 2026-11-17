@@ -23,7 +23,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function snapshot(ch) {
   const dir = accounts.dir(ch.platform, ch.account);
   if (!fs.existsSync(dir)) return null;
-  const bak = path.join(accounts.platformDir(ch.platform), 'accounts', `.bak-${ch.account}`);
+  // 备份名带 pid：两个终端同时登录同一账号时互不覆盖
+  const bak = path.join(accounts.platformDir(ch.platform), 'accounts', `.bak-${ch.account}-${process.pid}`);
   try {
     fs.rmSync(bak, { recursive: true, force: true });
     fs.cpSync(dir, bak, { recursive: true });
@@ -33,11 +34,15 @@ function snapshot(ch) {
   }
 }
 
+// 只在「确实换上了别的账号、要撤回」时调用。
+// ⚠ 顺序不能反：先确认备份在，再动现场。踩过的坑 —— 另一个登录进程超时后走到这里时，
+// 备份已被成功那次 drop 掉，于是「删了现场、rename 失败」，整个账号目录连凭据一起没了。
 function restore(ch, bak) {
+  if (!bak || !fs.existsSync(bak)) return false;
   const dir = accounts.dir(ch.platform, ch.account);
   try {
     fs.rmSync(dir, { recursive: true, force: true });
-    if (bak) fs.renameSync(bak, dir);
+    fs.renameSync(bak, dir);
     return true;
   } catch {
     return false;
@@ -51,8 +56,8 @@ function drop(bak) {
 
 /** 无头登录：打印链接 → 轮询 → 成功/超时。状态机 pending/done/failed/expired/cancelled。 */
 async function deviceLogin(p, ctx, opts) {
-  const d = p.auth.device;
-  const s = await d.start(ctx);
+  const d = opts.impl || p.auth.device;
+  const s = await d.start(ctx, opts);
   const timeoutMs = Math.max(1, opts.maxWaitMin) * 60e3;
   // 步骤文案由驱动给（不同平台的授权方式不一样：微信授权 / 网页登录 / 短信）
   const steps = Array.isArray(s.steps) && s.steps.length
@@ -65,21 +70,24 @@ async function deviceLogin(p, ctx, opts) {
   console.log('步骤：');
   steps.forEach((t, i) => console.log(`  ${i + 1}. ${t}`));
   console.log('');
-  console.log(ui.c.bold('  登录链接：'));
-  console.log('    ' + s.url);
-  console.log('');
+  if (s.url) {
+    console.log(ui.c.bold('  登录链接：'));
+    console.log('    ' + s.url);
+    console.log('');
+  }
   console.log(ui.c.dim(`（有效期 ${opts.maxWaitMin} 分钟，Ctrl-C 取消）…`));
 
   const started = Date.now();
   let tick = 0;
   for (;;) {
-    await sleep(2000);
+    if (!opts.callback) await sleep(2000);
     tick++;
     let r;
     try {
-      r = await d.poll(ctx, s.state);
+      r = await d.poll(ctx, s.state, opts);
     } catch (e) {
       log(`轮询出错（继续重试）：${String(e.message).slice(0, 120)}`);
+      if (opts.callback) return { code: 1 };
       continue;
     }
     if (r.status === 'done') {
@@ -104,14 +112,18 @@ async function deviceLogin(p, ctx, opts) {
       console.log(ui.c.yellow('\n登录已超时，请重新执行 cowbird login'));
       return { code: 1 };
     }
+    if (opts.callback) {
+      console.log(ui.c.yellow('\n这次回调没换到凭据：') + (r.message || '未知'));
+      return { code: 1 };
+    }
     if (tick % 15 === 0) log(`仍在等待授权…（${Math.round((Date.now() - started) / 1000)}s）`);
   }
 }
 
 async function run(argv) {
   const args = parse(argv, {
-    flags: ['import', 'print-only', 'device'],
-    values: ['max-wait', 'max-min', 'cookie', 'as', 'account'],
+    flags: ['import', 'print-only', 'device', 'oauth'],
+    values: ['max-wait', 'max-min', 'cookie', 'as', 'account', 'callback'],
     aliases: { m: 'max-wait', a: 'as' },
   });
   const explicit = args.opts.as || args.opts.account || '';
@@ -119,7 +131,10 @@ async function run(argv) {
   const p = ch.provider;
 
   if (!p.has(CAP.AUTH)) throw new Error(`本平台（${p.displayName}）没有登录态概念`);
-  const canDevice = Boolean(p.auth && p.auth.device && typeof p.auth.device.start === 'function');
+
+  // 驱动可以有多套登录：默认 `auth.device`（无头），`auth.oauth` 是另一面凭据（--oauth 才走）
+  const impl = args.opts.oauth && p.auth && p.auth.oauth ? p.auth.oauth : (p.auth && p.auth.device);
+  const canDevice = Boolean(impl && typeof impl.start === 'function');
   if (!canDevice && (!p.auth || typeof p.auth.login !== 'function')) {
     throw new Error(`本平台（${p.displayName}）既没有无头登录（auth.device）也没有 auth.login()`);
   }
@@ -129,8 +144,10 @@ async function run(argv) {
   const opts = {
     importOnly: !!args.opts.import,
     maxWaitMin: num(args.opts['max-wait'] || args.opts['max-min'], Number(process.env.LOGIN_MAX_MIN) || 20),
+    impl: canDevice ? impl : null,
   };
   if (args.opts.cookie) opts.cookie = String(args.opts.cookie);
+  if (args.opts.callback) opts.callback = String(args.opts.callback);
 
   process.on('unhandledRejection', (e) => log('warn ' + String(e).slice(0, 160)));
   process.on('uncaughtException', (e) => log('warn ' + String(e).slice(0, 160)));
@@ -160,7 +177,9 @@ async function run(argv) {
   }
 
   if (r.code !== 0) {
-    restore(ch, bak);                   // 失败：把原样还回去
+    // 失败/超时**不动现场**：驱动都是「成功之后一次写盘」，失败时什么都没改。
+    // 早先这里是 restore()，两个终端同时登录同一账号时会把另一个刚写好的凭据删掉。
+    drop(bak);
     return 1;
   }
 
@@ -197,10 +216,13 @@ module.exports = {
     '  -a, --as <账号>        登录到指定账号（同平台可以挂多个），默认用该平台的默认账号',
     '  -m, --max-wait <分钟>  等待授权的有效期，默认 20',
     '  --cookie "<串>"        粘一串 cookie（只对 cookie 型平台有用，如码道/Qoder）',
+    '  --oauth                走 OAuth(PKCE+DPoP) 换 STS 凭据（码道：snap-access 那一面，非控制面 cookie）',
+    '  --callback "<地址>"    浏览器在另一台机器时，把跳转回来的 http://127.0.0.1:…/oauth/callback?code=… 粘回来',
     '',
     '说明:',
-    '  打印一个链接，在微信里打开并授权，这边自动收到登录态。不需要浏览器。',
+    '  打印一个链接，在微信/浏览器里打开并授权，这边自动收到登录态。',
     '  加第二个账号：cowbird login --as 别名。不加 --as 时若授权的是别的账号，会还原原凭据并提示。',
+    '  码道的 --oauth 走「本地回调 + 轮询 ticket」两条腿，够不着时用 --callback 手动补。',
     '  想看现有账号：cowbird account ls。',
     '',
     '退出码:',
