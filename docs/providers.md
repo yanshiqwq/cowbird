@@ -2,7 +2,7 @@
 
 cowbird 现在把「平台」关在 `lib/platform/` 里。**加一个平台 = 新建一个目录 + 实现契约**，内核（命令、daemon、配置、实例解析）一行都不用改。
 
-现有四个驱动可以直接抄：
+现有五个真实驱动 + 一个样例可以直接抄：
 
 | 驱动 | 目录 | 它示范了什么 |
 |---|---|---|
@@ -59,8 +59,13 @@ module.exports = defineProvider({
 
 `instances.list()` 每项除 `{id, name, status, updatedAt, archived}` 外，可再给一个可选的
 **`hasSandbox`**：`true` = 这个会话有沙箱；`false` = 明确没有（例如码道网页端随手开的对话，
-`agent_session_id` 为空）；**省略 = 平台不区分**。`cowbird ls` 默认会藏掉 `hasSandbox === false`
-的行（`--all` 才显示，并多一列「沙箱」），所以拿不准就别填 —— 宁可多列，也别把列表弄空。
+`agent_session_id` 为空）；**省略 = 平台不区分**。`cowbird ls --all` 会多一列「沙箱」把它标出来。
+
+**「沙箱会话 / 用户会话」不用驱动操心。** 平台上的会话本来就是用户自己的东西（WorkBuddy 上
+一个会话还自带一个容器），平台也没有「这是工具建的沙箱」这种字段 —— 所以判据在内核：
+`lib/platform/sandboxes.js` 的登记簿。`cowbird create` 建出来的、`cowbird adopt` 收编的、
+`cowbird daemon targets add` 收进保活名单的才算沙箱会话，其余一律按用户会话处理。
+`cowbird ls` 默认只列沙箱会话，`--all` 才把用户会话一起列出来（类型列会标）。
 
 **`ctx` 里有什么**（驱动只从这里拿内核能力，别 `require('../../config')`）：
 
@@ -186,7 +191,7 @@ node -e "require('./lib/platform').use('<id>')"   # 契约校验通过
 npm test                                # contract + guard + smoke
 ```
 
-**`selftest.js` 的硬要求**：不发任何真实网络请求（假 `fetch` 注入，或纯函数断言）。现有四个驱动共 **224 项**离线用例，都是这么来的。
+**`selftest.js` 的硬要求**：不发任何真实网络请求（假 `fetch` 注入，或纯函数断言）。现有五个驱动共 **282 项**离线用例，都是这么来的。
 
 `test/guard.js` 是解耦棘轮：内核（`lib/`、`commands/`，排除 `lib/platform/`）里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。**新驱动不该改 `BASELINE`。**
 
@@ -195,9 +200,10 @@ npm test                                # contract + guard + smoke
 ## 七、接上去
 
 ```bash
-# 内置目录：天然可用
-cowbird platform ls
-cowbird platform use myplatform
+# 内置目录：天然可用（平台没有「当前」，login 时才需要按平台指定）
+cowbird platform ls                 # 全平台能力对照
+cowbird platform show myplatform     # 单平台细节
+cowbird --platform myplatform login --as main
 
 # 第三方驱动：不改内核，用环境变量指过去（路径/包名都行）
 COWBIRD_PLATFORM_MODULE=/path/to/my-provider.js cowbird ls

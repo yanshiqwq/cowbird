@@ -74,10 +74,11 @@ docker compose up -d
 cowbird login
 #   同一个平台还想挂第二个账号：cowbird login --as alt
 
-# 2. 看看有哪些实例
+# 2. 看看有哪些实例（= 沙箱会话）
+cowbird create work-01
 cowbird ls
-# ID                   名字        状态                  最近活动  凭据剩余
-# 2123456789012345678  work-01     completed/completed   2.8d      2.9d
+# ID                   名字      状态                最近活动          凭据剩余
+# 2123456789012345678  work-01   pending/pending     2026-11-18 09:12  2.9d
 
 # 3. 进去跑条命令（走 E2B，不惊动 Agent，也不进对话记录）
 cowbird exec work-01 "uname -a"
@@ -107,9 +108,10 @@ cowbird daemon status
 
 | 命令 | 作用 |
 |---|---|
-| `ls [--channel <渠道>] [--refresh] [--all]` | 列实例：状态、最近活动、凭据剩余。默认把所有渠道合起来列 |
+| `ls [--channel <渠道>] [--refresh] [--all]` | 列**沙箱会话**：状态、最近活动、凭据剩余。默认把所有渠道合起来列；平台上的用户会话要 `--all` 才出现 |
+| `create <名字> [--channel <渠道>]` | 新建实例（= 新会话 + 新容器），建完自动登记成沙箱会话 |
+| `adopt <实例...>` | 把平台上已有的会话收编成沙箱会话（`--release` 反过来） |
 | `info <实例> [--api-only]` | 探活：CPU 配额 / 可见核 / 内存 / uptime |
-| `create <名字> [--channel <渠道>]` | 新建实例（= 新会话 + 新容器） |
 | `rm <实例> [--yes]` | 删除，默认 dry-run |
 | `rename <实例> <新名字>` | 改名 |
 | `exec [--timeout <秒>] <实例> <命令...>` | 在容器里执行，退出码透传。实例之后全归命令，`exec 01 ls -la` 不用加引号 |
@@ -120,6 +122,7 @@ cowbird daemon status
 | `keepalive [选项] <实例>` | 长驻：把会话钉在「等回答」上，防闲置回收 |
 | `login [--as <账号>]` | 登录：打印链接，微信里授权 |
 | `account [ls\|use\|rm\|mv]` | 账号与渠道：看有哪些、切默认、删掉 |
+| `platform [ls\|show <id>]` | 平台驱动：能力对照 / 单平台细节（含它的渠道） |
 | `doctor` | 体检：数据目录 / 平台 / 渠道 / 登录态 / 接口 / 实例 / daemon |
 | `daemon ...` | 起停、状态、日志、保活目标、连远程 |
 
@@ -129,10 +132,35 @@ cowbird daemon status
 全局开关：`--channel <平台[:账号]>` / `--platform <id>` / `--account <名字>` 指定渠道；
 `--local` 这次不走 daemon；`--remote <url> [--token <t>]` 这次换成另一台 daemon。
 
+## 沙箱会话 / 用户会话
+
+平台上的「会话」是用户自己的东西 —— 你在网页里随手聊两句也是一个会话，WorkBuddy 上
+它甚至自带一个容器。cowbird 不管那些，只认**登记过的**：
+
+| 怎么来的 | 算不算沙箱会话 |
+|---|---|
+| `cowbird create <名字>` | 算 —— 建完自动登记 |
+| `cowbird adopt <实例>` | 算 —— 你显式收编的 |
+| `cowbird daemon targets add <实例>` | 算 —— 保活目标必然是沙箱 |
+| 你在平台网页/客户端里聊出来的 | 不算 —— `ls --all` 能看到，类型标「会话」 |
+
+登记表落在账号目录里（`platform/<平台>/accounts/<账号>/sandboxes.json`），所以同一个平台
+两个账号各记各的。`cowbird ls` 默认只列沙箱会话；`--all` 全看，多一列「类型」区分。
+换台机器想接着管同一批沙箱，把这个文件一起同步过去就行（里面只有 id 和名字）。
+
+```bash
+cowbird ls --all                       # 26 条里挑出要当沙箱用的那个
+cowbird adopt 2118512221536866304      # 收编（也可以写名字或短序号）
+cowbird ls                             # 现在它出现在默认列表里了
+cowbird adopt --release 21185122…      # 反悔：只注销登记，云端会话不动
+```
+
 ## 多账号与多渠道
 
 一个平台可以挂**多个账号**，几个平台可以**同时**挂着 —— 两边都不需要开第二份配置：
 渠道（`平台:账号`）是唯一寻址单位，实例、登录态、保活目标都挂在渠道上。
+**平台只是驱动的命名空间，没有「当前平台」**：所有平台一直在线，默认值只有一个 ——
+默认渠道（`cowbird account use`，`account ls` / `platform ls` 里打 `*`）。
 
 ```bash
 # 加第二个账号（同一个平台）
@@ -344,11 +372,13 @@ bin/cowbird.js                 CLI 入口与分发
 bin/cowbird-daemon.js          守护进程入口
 lib/config.js                  数据目录与配置
 lib/browser.js                 登录用的浏览器助手（playwright，可选依赖）
-lib/platform/                  内核：契约 / 注册表 / 渠道 / exec 编排 / 事件流
+lib/platform/                  内核：契约 / 注册表 / 渠道 / 沙箱登记簿 / exec 编排 / 事件流
+lib/platform/sandboxes.js      沙箱登记簿：哪些会话算沙箱会话
 lib/platform/workbuddy/        驱动：WorkBuddy（E2B envd + ACP）
 lib/platform/codearts/         驱动：码道 CodeArts（内核 shell + SSE）
 lib/platform/qoder/            驱动：Qoder（沙箱 MCP JSON-RPC）
 lib/platform/minimax/          驱动：MiniMax（无 exec 通道）
+lib/platform/trae/             驱动：TRAE（无 exec，有 fs）
 lib/daemon/                    守护进程：scheduler / heal / server / logstore
 commands/                      子命令
 docs/protocol.md               接口与协议细节

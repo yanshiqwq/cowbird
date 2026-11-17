@@ -70,6 +70,26 @@ lib/daemon/         ← 只被 daemon 用
   唯一不能并行的东西（模块级缓存）在驱动里已经被清干净 —— 这是 `test/contract.js` 里
   「两个账号的 store 互不相通」那条用例守着的东西。
 
+## 会话 / 沙箱 / 渠道
+
+三层概念，别混：
+
+| 概念 | 是什么 | 谁决定 |
+|---|---|---|
+| 渠道 | 平台 × 账号（`workbuddy:main`、`qoder:alt`） | 登录态目录 —— **唯一寻址单位** |
+| 会话 | 平台侧的一个对话；用户自己在网页里聊出来的也算 | 平台 |
+| 沙箱 | 能塞命令进去的容器：`exec` / `fs` 的目标 | 平台（一个会话一般挂一个） |
+
+平台不区分「用户会话」和「工具建的沙箱」（WorkBuddy 上一个会话就自带一个容器），
+所以这件事只能由**本地登记簿**决定：`lib/platform/sandboxes.js`，落在
+`platform/<平台>/accounts/<账号>/sandboxes.json`。三个入口：
+`cowbird create`（自动）、`cowbird adopt`（显式收编）、`cowbird daemon targets add`（保活目标）。
+登记过的算沙箱会话，其余算用户会话 —— `cowbird ls` 默认只列前者，`--all` 全看。
+
+**没有「当前平台」。** 渠道是并行的（几个平台、同平台几个账号同时挂着），平台只是驱动的
+命名空间；有「默认」的只有默认渠道（`cowbird account use`）。所以 `cowbird platform` 是
+全平台的能力对照，`platform show <id>` 才是单平台细节，「切换当前平台」这个概念已删除。
+
 ## 三条生命周期，三种维持手段
 
 这三个东西经常被混为一谈，实际上互相独立：
@@ -116,7 +136,7 @@ lib/daemon/         ← 只被 daemon 用
 2. **同步上限由 provider 的 `limits` 决定** —— 内核只做「同步 / 后台 / 拒绝」三选一，不写死 30s 或 600s；
 3. **网络与签名全归 provider 的 `transport`** —— 内核里不出现 `fetch`，cookie/UA 绑定/CSRF/签名/轮换都在驱动内部。
 
-当前内置驱动：`workbuddy`（E2B 数据面）、`codearts`（内核 shell）、`qoder`（沙箱 MCP）、`minimax`（无执行通道）。
+当前内置驱动：`workbuddy`（E2B 数据面）、`codearts`（内核 shell）、`qoder`（沙箱 MCP）、`minimax`（无执行通道）、`trae`（无执行通道，有 fs）。
 第三方驱动可用 `COWBIRD_PLATFORM_MODULE=<路径|包名>` 挂进来，不需要改内核。
 
 `test/guard.js` 是一道棘轮：内核里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。

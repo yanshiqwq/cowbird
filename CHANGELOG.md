@@ -3,6 +3,44 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.15.0] - 2026-11-18
+
+**分清「沙箱会话」与「用户会话」；`platform` 命令对齐多渠道 —— 不再有「当前平台」。**
+
+平台上的会话是用户自己的东西：你在网页里聊两句也是一个会话（WorkBuddy 上一个会话还自带
+一个容器），平台没有任何字段能说明「这是我们建的沙箱」。所以判据收回内核：**登记过的才算**。
+
+### 新增
+
+| 项 | 说明 |
+|---|---|
+| `lib/platform/sandboxes.js` | 沙箱登记簿，按账号落在 `accounts/<账号>/sandboxes.json`；`create` / `adopt` / `daemon targets add` 登记，其余一律按用户会话处理 |
+| `cowbird adopt <实例...>` | 把平台上已有的会话收编成沙箱会话（`--release` 只注销登记，云端会话不动） |
+| `ls --all` 的「类型」列 | 「沙箱 / 会话」一眼分开；`--json` 里是 `kind` |
+| `platform show <id>` | 单平台细节：能力按 实例/对话/执行/文件/认证 分组、同步上限、默认值、**该平台的渠道**（默认渠道打 `*`） |
+
+### 变更（BREAKING）
+
+- **`cowbird ls` 默认只列沙箱会话**。平台上的用户会话要 `--all` 才看得到（并多一列「类型」）。
+  空列表时会直接告诉你两条路：`cowbird adopt <引用>` 收编，或 `cowbird create` 开新的。
+- **`cowbird platform` 默认变成全平台能力对照表**（每行一个平台，带它自己的渠道），
+  不再是「当前平台」的能力卡片；单平台用 `platform show <id>`（也可以直接 `cowbird platform workbuddy`）。
+- **删掉 `cowbird platform use`**：平台没有「当前」这个概念。默认值只有一个 —— 默认渠道，
+  用 `cowbird account use <平台:账号>` 设置；一次性指定用全局开关 `--platform <id>`。
+- `rm` 的 dry-run 会标出目标是「沙箱会话」还是「用户会话」，后者额外提醒会连聊天记录一起删。
+- `daemon targets add` 顺手把目标登记成沙箱会话（否则会出现「正在保活的实例不在 ls 里」）。
+
+### 删掉
+
+- 「按平台字段猜存量会话算不算沙箱」的兜底（内测期不留兼容层）。实测那条线索
+  （WorkBuddy 的 `extraInfo.clientCreateRequestId`）会把 14 条用户对话误判成沙箱，
+  不如让 `adopt` 显式收编；`create` 从这一版起自己记账。
+
+### 测试
+
+`test/contract.js` 25 项 + `test/smoke.js` 43 项全绿；新增登记簿的渠道隔离与上限修剪、
+`platform` 表格的纯函数用例、`CAP_NAME` 对能力位的全覆盖检查。
+
 ## [0.14.0] - 2026-11-18
 
 **TRAE 补上 `fs`：能读能写沙箱里的工作区文件。**
