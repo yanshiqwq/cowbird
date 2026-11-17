@@ -89,6 +89,22 @@ getToken(id)
 
 多客户端场景下，**只有 daemon 那台需要登录态**。其他机器只要能连上 daemon 就行（记得带令牌）。
 
+## 平台驱动（多平台）
+
+平台相关的实现全部关在 `lib/platform/` 下，内核只认五样东西：`Instance / Access / Event / ExecResult / FileEntry`。
+**加平台 = 新建 `lib/platform/<id>/` 并实现契约，内核零改动**，详见 [providers.md](providers.md)。
+
+三条约束：
+
+1. **exec 是能力位**，不是命令 —— 平台没有执行通道就不声明，`wbsbx exec` 会报"不支持"并以退出码 2 结束；
+2. **同步上限由 provider 的 `limits` 决定** —— 内核只做「同步 / 后台 / 拒绝」三选一，不写死 30s 或 600s；
+3. **网络与签名全归 provider 的 `transport`** —— 内核里不出现 `fetch`，cookie/UA 绑定/CSRF/签名/轮换都在驱动内部。
+
+当前内置驱动：`workbuddy`（E2B 数据面）、`codearts`（内核 shell）、`qoder`（沙箱 MCP）、`minimax`（无执行通道）。
+第三方驱动可用 `WBSBX_PLATFORM_MODULE=<路径|包名>` 挂进来，不需要改内核。
+
+`test/guard.js` 是一道棘轮：内核里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。
+
 ## 扩展点
 
 **加一个命令**：在 `commands/` 新建文件，导出 `{ run, usage }`，在 `bin/wbsbx.js` 的 `COMMANDS` 里登记。命令只管参数解析和输出，凭据从 `cloud.getSession()` / `session.*` 拿，别自己读文件。
