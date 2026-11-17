@@ -73,6 +73,14 @@ data.items[] = { message_id, role, message_type, message_index, content, token_u
 
 - ✅ `instances.list/get/create/rename/remove`、`agent.history`、`agent.stream`（轮询增量）、
   `agent.interrupt`（`/stop`）、`auth.alive`（`CheckLogin`）
+- ✅ **`fs`（读/写/列）**：数据面打通后可用 ——
+  读 `GET /explorer/<sid>/file/<相对路径>`、写 `PUT` 同一路径、列目录走 WS `fs.readdir`
+  （没有 HTTP 版本，所以列目录要求 Node ≥ 22 的内置 WebSocket）：
+
+  ```bash
+  cowbird --platform trae get <会话> src/index.js        # 读工作区文件
+  cowbird --platform trae put <会话> ./local.js src/x.js # 写回工作区
+  ```
 - ❌ **`exec` / `fs`**：网页版 156 条端点里没有 terminal/pty/shell/exec。沙箱里的真 shell 只有
   三个入口：agent 的 `Shell` 工具（走模型回合）、VNC 桌面（`wss://<sandbox>…/websockify`）、
   IDE/文件通道（`/explorer/<sid>` WS）。数据面鉴权还差一个头，见下。
@@ -116,8 +124,13 @@ X-Trae-Client-Type: web
 ③ VNC（`wss://<sandbox>.…/websockify`）是 RFB 像素协议，不是命令行。
 ⇒ 沙箱里跑命令的唯一入口仍是 agent 的 `Shell` 工具（走模型回合、消耗额度）。
 
-**下一增量（还没做）**：有了这把钥匙就能加 `fs`（`/file/:path` + WS `fs.readdir`），
-届时声明 `CAP.FS`、实现 `fs.list/read`，内核不用改。
+**`fs` 已落地**（`fs.list` = WS `fs.readdir`，`fs.read`/`fs.write` = `/file/:path` 的 GET/PUT）。
+三条限制必须知道：
+
+1. 路径是**工作区相对路径**（git 树的路径），`/etc/hostname` 这种绝对路径读不到；
+2. 会话**离线**时（`x-explorer-mode: offline`）数据面读的是 **restic 备份的 git 快照**，
+   即「最后一次提交」的状态，不是沙箱当前状态；
+3. 列目录只有 WS 一条路，需要 Node ≥ 22（低版本会明确报 `E_UNSUPPORTED`）。
 
 ## 6. 自测
 

@@ -3,6 +3,22 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.14.0] - 2026-11-18
+
+**TRAE 补上 `fs`：能读能写沙箱里的工作区文件。**
+
+数据面（`agent-sandbox-*.trae.cn/explorer/<sid>`）的钥匙在 0.13.1 摸清后，文件通道就能用了：
+
+| 能力 | 怎么实现 |
+|---|---|
+| `fs.read` | `GET /explorer/<sid>/file/<相对路径>`（sessionFs.readFileStream） |
+| `fs.write` | `PUT` 同一路径（sessionFs.uploadFile） |
+| `fs.list` | WS JSON-RPC `fs.readdir`（没有 HTTP 版本，需 Node ≥ 22 的内置 WebSocket） |
+
+于是 `cowbird get <会话> <路径>` / `cowbird put <会话> <本地> <远端>` 在 TRAE 上可用。
+三条限制写进驱动 README：路径只认**工作区相对路径**；会话**离线**时读到的是 restic
+备份的 git 快照（不是沙箱当前状态）；列目录需要 Node ≥ 22。
+
 ## [0.13.1] - 2026-11-18
 
 **TRAE：补上数据面鉴权的结论，并把 `exec`/`prompt` 两条写成"平台没有"而不是"没做"。**
