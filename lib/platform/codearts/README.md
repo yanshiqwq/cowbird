@@ -189,6 +189,34 @@ cowbird --platform codearts login --oauth --callback '<浏览器被打回的那�
 会话/沙箱/`exec` 仍然只能走 cookie（4.1 的 A/B）；OAuth 那份用来做「这是谁的账号」
 （`account ls` 里的身份就是它查出来的）以及将来若改用 snap-access 数据面的备料。
 
+### 4.1c snap-access 那一面（2026-11-17 全量探测）：是模型网关，不是沙箱面
+
+拿 4.1b 换到的凭据（AK/SK 签名 + `x-auth-token`）把整个网关扫了一遍，判读依据是
+华为云 APIG 对「未发布路径」一律回 `404 + APIG.0101`：
+
+**存在的（6 条）**
+
+| 方法 | 路径 | 结果 |
+|---|---|---|
+| GET | `/snap-manager/v1/current/user` | 200，身份 `{user_id, user_name, domain_id}` |
+| GET | `/v1/model/builtin` | 200，`count:12` 内置模型（需 `Agent-Type: PromptCenter`） |
+| GET | `/v1/sessions?page=1&page_size=N` | 200，但 `sessions: []`（PromptCenter 口径，本账号没有） |
+| GET | `/v1/agent-center/agents/useragents` | 400「未找到合法可路由 api」（合法类型但无路由） |
+| POST | `/v1/chat/start-chat`、`/v1/chat/management/event` | 同上 |
+| POST | `/api/v2/chat/completions` | **200 SSE，真的出字**（`model: GLM-5.2` 流式返回 token；`auto` 回 `TM.000010051` 无权） |
+
+**不存在的（23 条）**：`/v1/cloudagent/sessions`、`/v1/sessions/{id}` 这类子路径、`/v1/sandbox*`、
+`/v1/terminal`、`/v1/shell`、`/v1/exec`、`/v1/tools`、`/v1/workspace`、`/v1/files`、`/v1/preview`、
+`/v1/agentkernel`，以及把控制面路径挂到这个网关的几种写法（`/chat/…`、`/snap-manager/…`、`/codebaseservice/…`）。
+
+**Agent-Type 只有四个合法值**：`CodeAgent`、`CodeBase`、`PromptCenter`、`AgentCenter`
+（其余一律 `TM.00001001 请求头Agent-Type非法`；合法但没路由则是「未找到合法可路由 api」）。
+`/v1/*` 这批只有 `PromptCenter` 有路由；`/api/v2/chat/completions` 反而不需要这个头。
+
+⇒ **结论：snap-access 是「身份 + 模型目录 + chat」的网关，没有会话/沙箱/执行面。**
+`exec`/`quote shell`/预览代理这条链路只能留在控制面（cookie），OAuth 凭据替代不了它。
+将来的用处就两条：① `account ls` 里的身份；② 若要做「不依赖 cookie 的 chat」，这条路是通的。
+
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
