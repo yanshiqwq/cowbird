@@ -23,13 +23,10 @@ const RULE_IMPORTS = /require\(['"]\.{1,2}\/(?:lib\/)?(?:cloud|session|e2b|acp|b
 
 // 已知残留（迁移完成后应逐条删除）
 const BASELINE = {
-  hosts: ['lib/config.js', 'lib/daemon/renew.js'],
-  imports: [
-    // 还没搬完的：daemon 三条循环 + doctor 的 WorkBuddy 专属检查 + keepalive（WB 特有）
-    'lib/cloud.js', 'lib/daemon/heal.js', 'lib/daemon/renew.js',
-    'lib/daemon/scheduler.js', 'lib/daemon/server.js', 'lib/keepalive.js',
-    'lib/resolve.js', 'commands/doctor.js', 'commands/keepalive.js',
-  ],
+  // 归零了：内核（lib/ 与 commands/，排除 lib/platform）里不再有任何平台主机名，
+  // 也不再有对平台实现的直接 require。以后再加平台只该动 lib/platform/<id>/。
+  hosts: [],
+  imports: [],
 };
 
 function walk(dir, out = []) {

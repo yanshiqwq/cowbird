@@ -19,11 +19,11 @@ process.env.WBSBX_LOCAL = '1';        // 不探测 daemon，避免 4 秒网络�
 const args = require('../lib/args');
 const ui = require('../lib/ui');
 const cfg = require('../lib/config');
-const creds = require('../lib/creds');
-const session = require('../lib/session');
-const e2b = require('../lib/e2b');
+const creds = require('../lib/platform/workbuddy/lib/creds');
+const session = require('../lib/platform/workbuddy/lib/session');
+const e2b = require('../lib/platform/workbuddy/lib/e2b');
 const resolve = require('../lib/resolve');
-const { Keepalive } = require('../lib/keepalive');
+const { Keepalive } = require('../lib/platform/workbuddy/lib/keepalive');
 const { runHeal, normalizeTargets } = require('../lib/daemon/heal');
 
 let pass = 0;
@@ -290,15 +290,20 @@ function frame(obj) {
   });
 
   console.log('\nheal（probe / script 双模式）');
+  // heal 的执行器现在是 `run(id, cmd, timeoutSec, {refresh})`（内核 exec 编排）。
+  // 这里保留原来的 exec(creds, cmd, opts) 形状做适配，测试断言不用改。
   const mkDeps = (over = {}) => {
     const calls = [];
-    return {
+    const deps = {
       calls,
-      exec: async (creds, cmd, o) => { calls.push({ cmd, o }); return { out: '', err: '', code: 0 }; },
-      getSession: async () => ({ token: 'a' }),
-      refreshSession: async () => ({ token: 'b' }),
-      ...over,
+      refreshSession: over.refreshSession || (async () => ({ token: 'b' })),
+      run: async (id, cmd, timeoutSec, { refresh } = {}) => {
+        if (refresh) await deps.refreshSession(id);
+        const exec = over.exec || (async (creds, c, o) => { calls.push({ cmd: c, o }); return { out: '', err: '', code: 0 }; });
+        return exec({ token: 'a' }, cmd, { timeout: timeoutSec });
+      },
     };
+    return deps;
   };
 
   ok('normalizeTargets 保留 script、id 转字符串', () => {

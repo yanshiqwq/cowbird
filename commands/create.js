@@ -20,7 +20,9 @@ async function run(argv) {
   if (!p.has(CAP.CREATE)) throw new Error(`本平台（${p.displayName}）不支持建实例`);
   const ctx = registry.context(p);
 
-  const model = args.opts.model || ctx.effective.model || cfg.DEFAULT_MODEL;
+  // 默认模型由驱动给（ctx.effective 是 provider.defaults + 用户配置合并后的结果）
+  const model = args.opts.model || ctx.effective.model || '';
+  if (!model) throw new Error(`本平台（${p.displayName}）没有默认模型：请用 --model 指定，或在 wbsbx.json 的 platforms.${p.id}.model 里配一个`);
   // 只有平台建会话非要一条指令时（WorkBuddy）才默认补一句；
   // 其它平台不发 —— 既省一轮，也避免平台拿首条消息自动改掉标题（Qoder 就会）。
   const prompt = args.opts.prompt || (p.requiresPromptOnCreate ? (ctx.effective.prompt || '你好，先不要做任何事，等我指令。') : null);

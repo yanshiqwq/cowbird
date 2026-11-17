@@ -3,6 +3,50 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.6.0] - 2026-11-17
+
+**解耦收尾：`lib/` 里不再有任何平台实现，解耦守卫归零（BASELINE 清空）。**
+
+### 变更
+
+- 把 WorkBuddy 的实现整体搬进 `lib/platform/workbuddy/`：
+  `lib/{cloud,session,e2b,acp,browser,creds,keepalive}.js` → `lib/platform/workbuddy/lib/`，
+  `lib/daemon/renew.js` → `lib/platform/workbuddy/renew-flow.js`，
+  `commands/login.js` 的浏览器流程 → `lib/platform/workbuddy/login-flow.js`（0.5.2 已搬）。
+  WorkBuddy 的主机名/默认模型 → `lib/platform/workbuddy/constants.js`，
+  于是 `lib/config.js` 不再含任何平台常量。
+- `lib/daemon/` 三条循环改成平台无关：
+  - `heal`：走内核的 exec 编排（`lib/platform/exec.js`），平台没有 `exec` 能力时直接
+    `skipped:'unsupported'`；「失败 → 刷新凭据 → 重试一次」保留。
+  - `refresh`：改用 `provider.instances.refresh()`；没有这个方法的平台记 `unsupported`。
+  - `renew`：改用 `provider.auth.renew()`；只有声明 `auth.renew` 的平台（WorkBuddy）会真跑。
+  - `snapshot()` 改成 async，并把 `platform` / `capabilities` 一起报出来。
+- `/api/state`、`/api/token/{id}` 改成走驱动（`auth.state` / `auth.importState` / `instances.token`），
+  平台不支持时返回 501 而不是 500。
+- `keepalive` 变成驱动的扩展点（`provider.keepalive.create`）：只有 WorkBuddy 有
+  「提问挂着不答」这套语义，其它平台直接报不支持并建议用 daemon heal。
+- `lib/resolve.js` 只保留平台无关的匹配规则，数据来源换成 `provider.instances.list()`。
+- `commands/doctor.js` 删掉内核里那套 WorkBuddy 专属检查（接口/实例缓存/凭据缓存/保活目标），
+  它们搬进 `workbuddy` 驱动的 `doctor.checks`；内核只留 node / 数据目录 / 平台 / daemon。
+- `test/guard.js` 的 BASELINE 清零：内核里再出现平台主机名或对平台实现的直接 require 就失败。
+
+### 结构
+
+```
+lib/            api args config log resolve ui
+lib/daemon/     heal logstore scheduler server
+lib/platform/   contract index validate exec stream target
+                workbuddy/ codearts/ qoder/ minimax/ _example/
+```
+
+`lib/` 里已经没有任何 `require('./cloud')` 这类平台实现依赖 —— 加平台只该动 `lib/platform/<id>/`。
+
+### 验证
+
+`npm test`（契约 18 + 守卫 + 冒烟 40）与四个驱动的离线自检（47/99/48/33）全绿；
+真机回归：`ls` / `doctor --no-net` / 真 daemon 启动（scheduler 报 `平台=workbuddy`）/
+`/api/status` / 加一个真保活目标跑一轮 heal（1 正常 0 失败）。
+
 ## [0.5.3] - 2026-11-17
 
 码道与 MiniMax 真机实测（第三、四家），修掉三个只有真机才会暴露的问题。

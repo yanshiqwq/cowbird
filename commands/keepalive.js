@@ -1,16 +1,16 @@
 // wbsbx keepalive —— 把会话钉在「等用户回答」上（长驻，Ctrl-C 结束）
 //
 // 和 daemon 的 heal 是两件事：
-//   heal      每 10 分钟一次 E2B exec（便宜、不进对话记录、保证不被回收）
+//   heal      每 10 分钟一次 exec（便宜、不进对话记录、保证不被回收）
 //   keepalive 维持 SSE 长连接 + 挂着的提问（让会话状态停在 pending/working）
 //
-// 详见 lib/keepalive.js 的文件头。这里只管参数解析和输出。
+// 「提问挂着不答」是 ACP 特有的语义，所以真正的实现在驱动的扩展点里
+// （provider.keepalive.create）；内核只负责参数、打印和信号。
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
 const cfg = require('../lib/config');
-const cloud = require('../lib/cloud');
-const resolve = require('../lib/resolve');
-const { Keepalive } = require('../lib/keepalive');
+const registry = require('../lib/platform');
+const { resolveInstance } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 const USAGE = 'keepalive [--nudge <秒>] [--max-nudges <次>] [--stall <秒>] [--duration <秒>] [--no-nudge] [--prompt <文案>] <实例>';
@@ -22,9 +22,16 @@ async function run(argv) {
     aliases: { n: 'nudge', s: 'duration' },
   });
   const [ref] = need(args, 1, USAGE);
-  const k = cfg.readConfig().keepalive;
+  const k = cfg.readConfig().keepalive || {};
 
-  const inst = await resolve.resolve(ref);
+  const p = registry.get();
+  if (!p.keepalive || typeof p.keepalive.create !== 'function') {
+    throw new Error(`本平台（${p.displayName}）不支持 keepalive：它依赖 ACP 的「提问挂着不答」语义。\n` +
+      '  想让实例不被回收，用 daemon 的 heal（wbsbx daemon targets add <实例>），或直接 wbsbx exec。');
+  }
+  const ctx = registry.context(p);
+  const inst = await resolveInstance(ctx, ref);
+
   const opts = {
     nudgeSec: num(args.opts.nudge, k.nudgeSec),
     maxNudges: num(args.opts['max-nudges'], k.maxNudges),
@@ -32,28 +39,11 @@ async function run(argv) {
     stallAfterNudgeSec: num(args.opts.stall, k.stallAfterNudgeSec),
     prompt: args.opts.prompt || k.prompt,
     noNudge: !!args.opts['no-nudge'],
-    // 日志里的状态以控制面为准，跟 `wbsbx ls --refresh` 同一个取法
-    probeStatus: async () => {
-      const d = await cloud.getConversation(inst.id);
-      return { status: d.status, sessionStatus: d.sessionStatus, updatedAt: d.updatedAt };
-    },
     log: (m) => log(`[${inst.name || inst.id}] ${m}`),
   };
   const sec = num(args.opts.duration || args.opts.sec, 0);
 
-  // 每次重连前重新取凭据：顺手把快过期的 token 刷掉（纯 HTTP，不需要浏览器）
-  const reload = async () => {
-    const s = await cloud.getSession(inst.id, () => {});
-    const left = s.expireAt ? s.expireAt * 1000 - Date.now() : Infinity;
-    if (left < k.leadMs) {
-      log('凭据剩余不足 ' + Math.round(k.leadMs / 36e5) + 'h，先续一次');
-      return cloud.refreshSession(inst.id, () => {});
-    }
-    return s;
-  };
-
-  const s = await reload();
-  const kp = new Keepalive(s, { ...opts, reload });
+  const kp = await p.keepalive.create(ctx, inst.id, opts);
 
   console.log(ui.c.green('keepalive 启动') + ui.c.dim(
     `  ${inst.name || inst.id} · 催话 ${opts.nudgeSec}s` +
@@ -90,12 +80,15 @@ module.exports = {
     '  长驻进程。收到 AskUserQuestion 不回答，让那一轮一直挂着 —— 会话就停在 pending，',
     '  平台不会把它当闲置回收。掉出这个状态时补一句催话让它重新提问。',
     '',
+    '  目前只有 WorkBuddy 实现了这个扩展点（ACP 的提问语义）；其它平台会直接报不支持，',
+    '  想保活请用 daemon 的 heal。',
+    '',
     '  催话会写进该会话的历史；不想留痕用 --no-nudge。',
     '  断线自动重连：连接 20s 超时、单条 POST 60s 超时、催话后无响应 30s 判死；',
     '  连续短连接按 5/10/20/40/60s 退避。',
     '',
     '退出码:',
     '  0  正常退出（Ctrl-C 或 --duration 到期）',
-    '  1  取凭据失败',
+    '  1  取凭据失败 / 平台不支持',
   ],
 };

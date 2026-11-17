@@ -8,10 +8,6 @@ const path = require('path');
 const { parse } = require('../lib/args');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
-const browser = require('../lib/browser');
-const cloud = require('../lib/cloud');
-const session = require('../lib/session');
-const creds = require('../lib/creds');
 const api = require('../lib/api');
 
 const rows = [];
@@ -35,73 +31,11 @@ function checkHome() {
   }
 }
 
-async function checkLoginState() {
-  const s = await creds.loginState();
-  if (!s || !s.cookies.length) {
-    add('warn', '登录态', '没有（跑 wbsbx login，或 login --import 复用现有浏览器）');
-    return null;
-  }
-  if (!s.ua) {
-    add('bad', '登录态', '有 cookie 但缺 UA —— 会话跟 UA 强绑定，必定 401。重跑 wbsbx login');
-    return null;
-  }
-  const d = session.ttlDays(s.cookies);
-  const left = d === null ? '期限未知' : d <= 0 ? '已过期' : `剩 ${d.toFixed(1)} 天`;
-  add(d !== null && d <= 0 ? 'warn' : 'ok', '登录态', `${s.cookies.length} 条 cookie，${left}${s.source === 'daemon' ? ui.c.dim('（来自 daemon）') : ''}`);
-  if (d !== null && d < 2) {
-    add('warn', '登录态到期', `不到 2 天 —— daemon 的 renew 没开的话，需要手动重新 login`);
-  }
-  return s;
-}
 
-async function checkApi(allowNet, st) {
-  if (!allowNet) { add('info', '接口', '未联网校验（--no-net）'); return; }
-  if (!st || !st.cookies.length || !st.ua) { add('info', '接口', '跳过（没登录态）'); return; }
-  try {
-    const r = await cloud.probeLogin();
-    add(r.ok ? 'ok' : 'bad', '接口', r.ok ? '200，纯 HTTP 可用（不需要浏览器）' : `http=${r.status}，需要 wbsbx login`);
-  } catch (e) {
-    add('bad', '接口', String(e.message).slice(0, 100));
-  }
-}
 
-async function checkSessions(allowNet, st) {
-  let list = cloud.cachedConversations();
-  if (allowNet && st && st.ua) {
-    try { list = await cloud.listConversations(); }
-    catch (e) { add('warn', '实例列表', '拉取失败：' + e.message.slice(0, 80)); }
-  }
-  if (list.length) {
-    const byStatus = (k) => list.filter((x) => x.status === k).length;
-    add('ok', '实例', `${list.length} 个（pending ${byStatus('pending')}，working ${byStatus('working')}）`);
-  } else {
-    add('warn', '实例', '没有缓存也没有拉到会话');
-  }
-  const ids = cfg.cachedIds();
-  const soon = ids.map((id) => cfg.readToken(id)).filter(Boolean)
-    .map((t) => t.expireAt)
-    .filter((e) => e && e * 1000 > Date.now() && e * 1000 - Date.now() < 12 * 3600e3);
-  add(ids.length ? 'ok' : 'info', '凭据缓存', `${ids.length} 份` + (soon.length ? ui.c.yellow(`，${soon.length} 份 12h 内到期`) : ''));
-}
 
 // daemon 挂了不会让 CLI 瘫痪，但会让实例没人访问 —— 这是「慢慢被回收」的开端，必须让用户看见。
 // 目标配了 script 却读不到文件，是"十轮之后才发现"的那种错 —— 放在体检里当场暴露。
-function checkHealTargets() {
-  const c = cfg.readConfig();
-  const list = c.heal.targets || [];
-  if (!list.length) { add('info', '保活目标', '未配置（heal 不会做任何事）'); return; }
-  const missing = [];
-  let withScript = 0;
-  for (const t of list) {
-    if (!t.script) continue;
-    withScript++;
-    const p = path.isAbsolute(t.script) ? t.script : path.resolve(c.heal.scriptsDir || '.', t.script);
-    if (!fs.existsSync(p)) missing.push(`${t.name || t.id} → ${p}`);
-  }
-  const desc = `${list.length} 个（${withScript ? withScript + ' 个 script 模式' : '全是 probe'}）`;
-  if (missing.length) add('bad', '保活目标', `${desc}，脚本缺失：${missing.join('；')}`);
-  else add('ok', '保活目标', desc);
-}
 
 async function checkDaemon() {
   const c = cfg.readConfig();
@@ -122,14 +56,6 @@ async function checkDaemon() {
   }
 }
 
-function checkBrowser() {
-  if (!browser.hasPlaywright()) {
-    add('info', '浏览器', '没装 playwright-core —— 只影响 wbsbx login 和 daemon 的登录态续期');
-    return;
-  }
-  const desc = browser.describe();
-  add('info', '浏览器', desc ? `${desc} —— 仅登录/续期需要` : '找不到 Edge/chromium —— 仅影响登录/续期，可设 WBSBX_BROWSER 指定路径');
-}
 
 async function run(argv) {
   const args = parse(argv, { flags: ['no-net', 'json'] });
@@ -150,17 +76,9 @@ async function run(argv) {
     add('bad', '平台', String(e.message).slice(0, 160));
   }
 
-  // 历史包袱：这几项目前仍是 WorkBuddy 专属实现（cookie/接口/实例缓存/保活目标）。
-  // 先跑它们，后面驱动的同名检查会覆盖（驱动更清楚自己的平台）。等驱动补齐后整段删除。
-  const legacy = provider && provider.id === 'workbuddy';
+  // 驱动自己的体检项：平台专属的检查（登录态/接口/实例缓存/保活目标/浏览器…）都在驱动里，
+  // 内核只提供 node / 数据目录 / daemon 这些跨平台项。
   const hasProviderChecks = Boolean(provider && provider.doctor && typeof provider.doctor.checks === 'function');
-  const st = legacy ? await checkLoginState() : null;
-  if (legacy) {
-    await checkApi(allowNet, st);
-    await checkSessions(allowNet, st);
-    checkHealTargets();
-    if (!hasProviderChecks) checkBrowser();
-  }
 
   // 驱动自己的体检项（最后跑，同名覆盖历史检查）
   if (hasProviderChecks) {
