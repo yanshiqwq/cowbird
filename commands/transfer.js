@@ -16,7 +16,7 @@ function needFileChannel(p) {
   // 拿它当传输会把文件搞坏，所以只作兜底。
   if (p.has(CAP.EXEC) && p.exec && typeof p.exec.put === 'function' && typeof p.exec.get === 'function') return 'exec';
   if (p.has(CAP.FS)) return 'fs';
-  throw new Error(`本平台（${p.displayName}）没有文件通道（既没有 exec.put/get 也没有 fs）`);
+  throw new Error(`本平台 ${p.displayName} 没有文件通道（既没有 exec.put/get 也没有 fs）`);
 }
 
 async function putRun(argv) {

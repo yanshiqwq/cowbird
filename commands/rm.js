@@ -13,7 +13,7 @@ async function run(argv) {
 
   const { inst, ctx } = await pickTarget(ref, { log });
   const p = ctx.provider;
-  if (!p.has(CAP.REMOVE)) throw new Error(`本平台（${p.displayName}）不支持删除实例`);
+  if (!p.has(CAP.REMOVE)) throw new Error(`本平台 ${p.displayName} 不支持删除实例`);
   const action = args.opts.archive ? '归档' : '删除';
   const kind = sandboxes.kindOf(ctx, inst);
 

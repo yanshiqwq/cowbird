@@ -26,7 +26,7 @@ async function run(argv) {
   const { inst, ctx } = await pickTarget(ref);
   const p = ctx.provider;
   if (!p.keepalive || typeof p.keepalive.create !== 'function') {
-    throw new Error(`本平台（${p.displayName}）不支持 keepalive：它依赖 ACP 的「提问挂着不答」语义。\n` +
+    throw new Error(`本平台 ${p.displayName} 不支持 keepalive：它依赖 ACP 的「提问挂着不答」语义。\n` +
       '  想让实例不被回收，用 daemon 的 heal（cowbird daemon targets add <实例>），或直接 cowbird exec。');
   }
 

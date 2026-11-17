@@ -49,7 +49,7 @@ async function run(argv) {
   const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
   const p = ctx.provider;
   if (!p.agent || typeof p.agent.history !== 'function') {
-    throw new Error(`本平台（${p.displayName}）没有提供历史接口`);
+    throw new Error(`本平台 ${p.displayName} 没有提供历史接口`);
   }
 
   const opts = {

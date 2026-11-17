@@ -70,7 +70,7 @@ async function run(argv) {
   try {
     provider = registry.get();
     const caps = provider.capabilityList();
-    add('ok', '默认平台', `${provider.displayName}（${provider.id}）· ${caps.length} 项能力` +
+    add('ok', '默认平台', `${provider.displayName} · ${provider.id} · ${caps.length} 项能力` +
       (provider.has('exec') ? ` · 同步上限 ${Math.round(provider.limits.maxSyncMs / 1000)}s` : ' · 无执行通道'));
   } catch (e) {
     add('bad', '默认平台', String(e.message).slice(0, 160));

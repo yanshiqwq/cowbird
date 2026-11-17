@@ -53,7 +53,7 @@ async function run(argv) {
   const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
   const p = ctx.provider;
 
-  log(`连上 ${inst.name || inst.id}（${p.displayName} · ${ctx.channel}），观听 ${sec}s…`);
+  log(`连上 ${inst.name || inst.id} · ${p.displayName} · ${ctx.channel}，观听 ${sec}s…`);
   const print = printer(args.opts);
   const stream = p.agent.stream(ctx, inst.id, {});
   const deadline = Date.now() + sec * 1000;

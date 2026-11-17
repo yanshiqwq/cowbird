@@ -17,7 +17,7 @@ const { pickTarget } = require('../lib/platform/target');
 const USAGE = 'exec [--timeout <秒>] [--background] [--json] <实例> <命令...>   或   exec <实例> -f <脚本>';
 
 function noExecHint(p) {
-  return `本平台（${p.displayName}）没有执行通道。\n` +
+  return `本平台 ${p.displayName} 没有执行通道。\n` +
     `  可用的命令：ls / info / prompt / history / watch / doctor\n` +
     `  换一个支持 exec 的平台：cowbird platform ls`;
 }

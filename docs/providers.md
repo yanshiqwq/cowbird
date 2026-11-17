@@ -106,7 +106,7 @@ module.exports = defineProvider({
 没有执行通道就**别声明** `exec`。内核会：
 
 ```
-cowbird exec …  →  本平台（X）没有执行通道。
+cowbird exec …  →  本平台 X 没有执行通道。
                  可用的命令：ls / info / prompt / history / watch / doctor
 ```
 

@@ -10,7 +10,7 @@ async function run(argv) {
 
   const { inst, ctx } = await pickTarget(ref);
   const p = ctx.provider;
-  if (!p.has(CAP.RENAME)) throw new Error(`本平台（${p.displayName}）不支持改名`);
+  if (!p.has(CAP.RENAME)) throw new Error(`本平台 ${p.displayName} 不支持改名`);
   await p.instances.rename(ctx, inst.id, title);
   console.log(ui.c.green('OK') + ` ${inst.id} → ${title}`);
   return 0;

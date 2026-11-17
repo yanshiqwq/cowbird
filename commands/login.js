@@ -130,13 +130,13 @@ async function run(argv) {
   const ch = channels.preferred({ account: explicit || undefined });
   const p = ch.provider;
 
-  if (!p.has(CAP.AUTH)) throw new Error(`本平台（${p.displayName}）没有登录态概念`);
+  if (!p.has(CAP.AUTH)) throw new Error(`本平台 ${p.displayName} 没有登录态概念`);
 
   // 驱动可以有多套登录：默认 `auth.device`（无头），`auth.oauth` 是另一面凭据（--oauth 才走）
   const impl = args.opts.oauth && p.auth && p.auth.oauth ? p.auth.oauth : (p.auth && p.auth.device);
   const canDevice = Boolean(impl && typeof impl.start === 'function');
   if (!canDevice && (!p.auth || typeof p.auth.login !== 'function')) {
-    throw new Error(`本平台（${p.displayName}）既没有无头登录（auth.device）也没有 auth.login()`);
+    throw new Error(`本平台 ${p.displayName} 既没有无头登录（auth.device）也没有 auth.login()`);
   }
 
   const ctx = ch.ctx;
