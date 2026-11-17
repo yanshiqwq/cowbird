@@ -217,6 +217,31 @@ cowbird --platform codearts login --oauth --callback '<浏览器被打回的那�
 `exec`/`quote shell`/预览代理这条链路只能留在控制面（cookie），OAuth 凭据替代不了它。
 将来的用处就两条：① `account ls` 里的身份；② 若要做「不依赖 cookie 的 chat」，这条路是通的。
 
+### 4.1d 控制面只认 cookie：四种「免浏览器换凭据」全部实测否决（2026-11-17）
+
+想把「cookie 过期就得重新贴」这件事治掉，挨个试过，全灭。判据一律是
+`HW-AJAX-REDIRECT: …authui/login…`（被踢回登录页）vs 200 + JSON：
+
+| 拿什么去换 | 怎么发 | 结果 |
+|---|---|---|
+| OAuth 换回来的 STS `security_token` | `X-Auth-Token` / `Authorization: Bearer` / AK-SK 签名 | 登录页 |
+| **永久** AK/SK 签名的 IAM token（项目级 `cn-north-4`，5260 字符） | `X-Auth-Token` / `X-Subject-Token` / `Bearer` / `Authorization: <token>` | 登录页 |
+| 同上，账号级 scope | 同上 | 登录页 |
+| 永久 AK/SK 直接对控制面做 `SDK-HMAC-SHA256` 签名 | `/rest/me`、`/chat/v1/cloudagent/sessions` | 登录页 |
+
+补一条：**STS 临时 AK/SK 换不出 IAM token**（`POST iam/v3/auth/tokens` + `hw_ak_sk` 六种组合全是
+`400 Can't find credential by ak`，IAM 只认永久密钥）；永久密钥能换出 IAM token（201），但控制面不认。
+
+另外 `/chat/` 这个未登录页面 **也会下发一个 `devclouddevuibjJ_SESSION_ID`** —— 说明这条 cookie
+本身只是「会话壳」，登录态是服务端绑上去的，所以「自己造一个 cookie」不可行。
+
+⇒ `devcloud` 前面的 APISIX 鉴权插件只看会话 cookie，不认任何 header 凭据。
+能让码道不手贴 cookie 的路只剩两条，且都绕不开「一次人工」：
+
+1. **保活**：若服务端是滑动过期，定期请求即可永续 —— 装置现成（daemon 的 heal 每 10 分钟
+   打一次控制面）。**未验证**：需要在有活 cookie 时观察 12 小时。
+2. **持久浏览器 profile / 读本机浏览器 cookie**：一次性登录，之后自动捞 —— 仍依赖浏览器。
+
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
