@@ -12,7 +12,7 @@
 // conn=up，实际已经静默失效。这类回归没法靠纯函数测试覆盖，只能拿真 socket 打。
 // ============================================================
 const http = require('http');
-const { Keepalive } = require('../lib/keepalive');
+const { Keepalive } = require('../lib/platform/workbuddy/lib/keepalive');
 
 const QUESTION = {
   jsonrpc: '2.0', id: 7, method: '_codebuddy.ai/question',
