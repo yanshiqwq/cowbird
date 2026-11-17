@@ -14,6 +14,9 @@ process.env.WBSBX_LOCAL = '1';
 delete process.env.WBSBX_PLATFORM;
 delete process.env.WBSBX_PLATFORM_MODULE;
 
+// 不论怎么退出（含中途 process.exit），临时目录都不许留在 /tmp 里
+process.on('exit', () => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {} });
+
 const { CAP, EVENT, defineProvider, execResult } = require('../lib/platform/contract');
 const { validateShape } = require('../lib/platform/validate');
 const registry = require('../lib/platform');
