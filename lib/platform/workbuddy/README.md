@@ -38,11 +38,15 @@ cowbird login                 # 打印一个链接，在任意设备（手机也
 流程：`POST copilot.tencent.com/v2/plugin/auth/state?platform=VSCode` → `{state, authUrl}`
 → 打印 authUrl → 轮询 `GET /v2/plugin/auth/token?state=…`
 （未授权时 `code:11217 "login ing..."`）→ 拿到 `accessToken` / `refreshToken` / `expiresIn`
-→ 落盘 `~/.cowbird/platform/workbuddy/device-token.json`（600）→ 顺手实测一次控制面并写日志。
+→ 落盘 `~/.cowbird/platform/workbuddy/accounts/<账号>/device-token.json`（600）→ 顺手实测一次控制面并写日志。
 
 - **不需要浏览器**，服务器 / SSH 里也能登录（不依赖 playwright / Edge）。
 - accessToken 约 28 天，refreshToken 可续；daemon 的 renew 循环会定期续。
-- 换账号就是重新跑一次 `cowbird login`。
+- 换账号：换一个账号名再跑一次登录（账号名由内核的账号选择决定：`--as <名字>` /
+  `COWBIRD_ACCOUNT` / cowbird.json 的 `accounts`）。一个平台可以有多份登录态，
+  每份一个目录（`accounts/<账号>/`），`cowbird ls` 会把它们聚合起来，彼此看不见。
+- 驱动自己不拼任何数据目录路径：登录态、会话列表缓存的读写全走 `ctx.store`，
+  所以同一进程里（daemon）轮流用不同账号的 ctx 调用也不会串数据。
 
 ---
 

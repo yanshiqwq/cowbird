@@ -14,6 +14,11 @@ process.env.COWBIRD_LOCAL = '1';
 delete process.env.COWBIRD_PLATFORM;
 delete process.env.COWBIRD_PLATFORM_MODULE;
 
+// 先造一份**老布局**（凭据直接躺在 platform/<平台>/ 下），下面验一次性迁移。
+// 必须在任何 context() 之前 —— 迁移是进程内只跑一次的。
+fs.mkdirSync(path.join(TMP, 'platform', '_example'), { recursive: true });
+fs.writeFileSync(path.join(TMP, 'platform', '_example', 'auth.json'), '{"legacy":true}');
+
 // 不论怎么退出（含中途 process.exit），临时目录都不许留在 /tmp 里
 process.on('exit', () => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {} });
 
@@ -86,10 +91,77 @@ const okA = async (name, fn) => { try { await fn(); pass++; console.log('  \u271
   ok('context() 提供隔离的 store 目录', () => {
     const p = registry.use('_example');
     const ctx = registry.context(p);
-    assert.strictEqual(ctx.store.dir, path.join(TMP, 'platform', '_example'));
+    assert.strictEqual(ctx.store.dir, path.join(TMP, 'platform', '_example', 'accounts', 'default'));
     ctx.store.write('probe', { a: 1 });
     assert.deepStrictEqual(ctx.store.read('probe'), { a: 1 });
     assert.strictEqual(fs.existsSync(path.join(ctx.store.dir, 'probe.json')), true);
+  });
+
+  ok('两个账号的 store 互不相通', () => {
+    const p = registry.use('_example');
+    const a = registry.context(p, { account: 'alice' });
+    const b = registry.context(p, { account: 'bob' });
+    assert.notStrictEqual(a.store.dir, b.store.dir);
+    assert.strictEqual(a.channel, '_example:alice');
+    assert.strictEqual(b.account, 'bob');
+    a.store.write('auth', { who: 'alice' });
+    assert.strictEqual(b.store.read('auth'), null, 'bob 不该看到 alice 的凭据');
+    assert.deepStrictEqual(a.store.read('auth'), { who: 'alice' });
+    b.store.write('auth', { who: 'bob' });
+    assert.deepStrictEqual(a.store.read('auth'), { who: 'alice' }, 'bob 写自己的不该覆盖 alice');
+  });
+
+  ok('账号名非法要拒绝（路径注入）', () => {
+    const p = registry.use('_example');
+    for (const bad of ['../x', 'a/b', 'x'.repeat(40), '.hidden', '-x']) {
+      assert.throws(() => registry.context(p, { account: bad }), /不合法/, '应拒绝 ' + JSON.stringify(bad));
+    }
+    // 空串 / 不传 = 用默认账号，不算错
+    assert.strictEqual(registry.context(p, { account: '' }).account, 'default');
+    assert.strictEqual(registry.context(p).account, 'default');
+  });
+
+  ok('渠道解析：平台[:账号]、@ 分隔、非法名', () => {
+    const channels = require('../lib/platform/channels');
+    assert.deepStrictEqual(channels.parse('workbuddy'), { platform: 'workbuddy', account: null });
+    assert.deepStrictEqual(channels.parse('qoder:alt'), { platform: 'qoder', account: 'alt' });
+    assert.deepStrictEqual(channels.parse('qoder@alt'), { platform: 'qoder', account: 'alt' });
+    assert.throws(() => channels.parse('01'), /不合法/);
+    assert.throws(() => channels.parse('qoder:../x'), /不合法/);
+  });
+
+  ok('老布局凭据迁移到 accounts/default（幂等）', () => {
+    const accounts = require('../lib/platform/accounts');
+    const dst = path.join(TMP, 'platform', '_example', 'accounts', 'default', 'auth.json');
+    assert.ok(fs.existsSync(dst), '老文件应搬到 accounts/default/');
+    assert.ok(!fs.existsSync(path.join(TMP, 'platform', '_example', 'auth.json')), '老位置不该留着');
+    assert.deepStrictEqual(JSON.parse(fs.readFileSync(dst, 'utf8')), { legacy: true }, '内容要原样');
+    accounts.migrate();                                   // 再跑一次：不许报错、不许搬回去
+    assert.ok(fs.existsSync(dst));
+    assert.strictEqual(accounts.meta('_example', 'default').migrated, true, '迁移来的账号要留名片');
+  });
+
+  ok('实例引用的渠道前缀：只有前半段像渠道才拆', () => {
+    const { splitRef } = require('../lib/platform/target');
+    assert.deepStrictEqual(splitRef('01'), { channel: null, ref: '01' });
+    assert.deepStrictEqual(splitRef('qoder:alt/01'), { channel: 'qoder:alt', ref: '01' });
+    assert.deepStrictEqual(splitRef('a/b'), { channel: null, ref: 'a/b' }, '不认识的平台名不当渠道拆');
+    assert.deepStrictEqual(splitRef('workbuddy:main/2123456789012345678').ref, '2123456789012345678');
+    assert.deepStrictEqual(splitRef('workbuddy/01').channel, 'workbuddy', '不写账号就是该平台的默认账号');
+  });
+
+  okA('渠道枚举只看有目录的账号，跳过 _ 开头的样例驱动', async () => {
+    const channels = require('../lib/platform/channels');
+    fs.mkdirSync(path.join(TMP, 'platform', 'codearts', 'accounts', 'probe'), { recursive: true });
+    fs.writeFileSync(path.join(TMP, 'platform', 'codearts', 'accounts', 'probe', 'auth.json'), '{}');
+    registry.context(registry.use('_example'), { account: 'alice' }).store.write('x', 1);
+    const keys = channels.all().map((c) => c.key);
+    assert.ok(keys.includes('codearts:probe'), '应有 codearts:probe，实际 ' + JSON.stringify(keys));
+    assert.ok(!keys.some((k) => k.startsWith('_')), '_ 开头的样例不该出现在渠道列表里');
+    assert.ok(channels.selected().some((c) => c.key === 'codearts:probe'), '没有显式指定时应该聚合所有渠道');
+    assert.strictEqual(channels.get('codearts:probe').ctx.store.dir, path.join(TMP, 'platform', 'codearts', 'accounts', 'probe'));
+    assert.strictEqual(channels.preferred({ channel: 'codearts:probe' }).key, 'codearts:probe');
+    assert.strictEqual(channels.othersOf(channels.get('codearts:probe').ctx).some((c) => c.key === 'codearts:probe'), false);
   });
 
   console.log('\n样例平台端到端（内核视角）');

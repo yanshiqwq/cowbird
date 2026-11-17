@@ -8,7 +8,7 @@ const { parse, need } = require('../lib/args');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const api = require('../lib/api');
-const resolve = require('../lib/resolve');
+const { pickTarget } = require('../lib/platform/target');
 
 const DAEMON_JS = path.join(__dirname, '..', 'bin', 'cowbird-daemon.js');
 
@@ -93,23 +93,33 @@ async function status(argv) {
   };
   const lastHeal = st.lastHeal && !st.lastHeal.skipped
     ? `${st.lastHeal.ok || 0} 正常 / ${st.lastHeal.failed || 0} 失败` +
-      (st.lastHeal.warned ? ui.c.yellow(`，${st.lastHeal.warned} 条告警`) : '')
+      (st.lastHeal.warned ? ui.c.yellow(`，${st.lastHeal.warned} 条告警`) : '') +
+      (st.lastHeal.skipped ? ui.c.dim(`，${st.lastHeal.skipped} 跳过`) : '')
     : (st.lastHeal && st.lastHeal.skipped ? ui.c.dim('跳过（' + st.lastHeal.skipped + '）') : '-');
-  const login = st.login && st.login.present
-    ? `${st.login.cookies} 条 cookie，剩 ${st.login.ttlDays === null ? '?' : st.login.ttlDays.toFixed(1)} 天`
-    : ui.c.red('没有登录态');
 
   const rows = [
     ['运行时长', Math.floor(st.uptimeSec / 60) + ' 分钟'],
-    ['保活目标', st.targets.length ? st.targets.map((t) => t.name || t.id).join(', ') : ui.c.dim('（未设置）')],
+    ['默认渠道', st.channel || st.platform || '-'],
+    ['保活目标', st.targets.length ? st.targets.map((t) => (t.channel ? t.channel + '/' : '') + (t.name || t.id)).join(', ') : ui.c.dim('（未设置）')],
     ['保活周期', Math.round(st.config.heal.intervalMs / 60e3) + ' 分钟'],
     ['上一轮保活', `${fmtAge(st.lastHealAt)} · ${lastHeal}`],
     ['上一轮刷新', `${fmtAge(st.lastRefreshAt)} · ${st.lastRefresh && st.lastRefresh.done ? st.lastRefresh.done.length + ' 份' : '-'}`],
     ['登录态续期', st.config.renew.enabled ? `开（剩 ${st.config.renew.whenDays} 天时）· ${fmtAge(st.lastRenewAt)}` : ui.c.dim('关')],
-    ['登录态', login],
     ['累计错误', st.errors ? ui.c.yellow(st.errors) : '0'],
   ];
   console.log(ui.table(['项目', '状态'], rows, { sep: false }));
+
+  // 每个「平台:账号」一行 —— 多账号共存时，光看一个 login 字段已经说明不了什么
+  const chs = Array.isArray(st.channels) ? st.channels : [];
+  if (chs.length) {
+    console.log(ui.c.dim('\n渠道：'));
+    console.log(ui.table(['渠道', '身份', '凭据剩余', '执行'], chs.map((c) => [
+      c.key,
+      c.error ? ui.c.red('读不到') : c.who || ui.c.dim('-'),
+      c.error ? '-' : !c.present ? ui.c.red('未登录') : c.ttlDays == null ? ui.c.dim('未知') : ui.til((Date.now() + c.ttlDays * 86400e3) / 1000),
+      c.exec ? '✓' : ui.c.dim('·'),
+    ])));
+  }
   return 0;
 }
 
@@ -156,7 +166,7 @@ async function targets(argv) {
     const list = await current();
     if (args.opts.json) { console.log(JSON.stringify(list, null, 2)); return 0; }
     if (!list.length) { console.log(ui.c.dim('没有保活目标。加一个：cowbird daemon targets add 01')); return 0; }
-    console.log(ui.table(['ID', '名字'], list.map((t) => [t.id, t.name || '-'])));
+    console.log(ui.table(['ID', '名字', '渠道'], list.map((t) => [t.id, t.name || '-', t.channel || ui.c.dim('（默认）')])));
     return 0;
   }
 
@@ -165,15 +175,16 @@ async function targets(argv) {
     if (action === 'add') {
       if (!rest.length) throw new Error('用法: cowbird daemon targets add <实例...>');
       for (const ref of rest) {
-        const inst = await resolve.resolve(ref);
+        const { inst, ctx } = await pickTarget(ref);
         if (list.some((t) => String(t.id) === inst.id)) continue;
-        list.push({ id: inst.id, name: inst.name || '' });
+        // 渠道写死在目标上：以后换了默认账号，这个目标仍然跟着原来那个账号走
+        list.push({ id: inst.id, name: inst.name || '', channel: ctx.channel });
       }
     } else {
       if (!rest.length) throw new Error('用法: cowbird daemon targets rm <实例...>');
       const ids = [];
       for (const ref of rest) {
-        try { ids.push((await resolve.resolve(ref)).id); } catch { if (/^\d+$/.test(ref)) ids.push(ref); }
+        try { ids.push((await pickTarget(ref)).inst.id); } catch { if (/^\d+$/.test(ref)) ids.push(ref); }
       }
       list = list.filter((t) => !ids.includes(String(t.id)));
     }

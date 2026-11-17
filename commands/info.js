@@ -5,9 +5,8 @@
 // 只看 nproc 会做出错误的并发决策。配额由 provider 的 instances.info() 负责读 cgroup。
 const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP } = require('../lib/platform/contract');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const execCore = require('../lib/platform/exec');
 const log = require('../lib/log').log;
 
@@ -40,12 +39,10 @@ async function run(argv) {
   const args = parse(argv, { flags: ['json', 'api-only'] });
   const [ref] = need(args, 1, 'info <实例> [--api-only] [--json]');
 
-  const p = registry.get();
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-  const inst = await resolveInstance(ctx, ref);
+  const { inst, ctx } = await pickTarget(ref, { log });
+  const p = ctx.provider;
 
-  const out = { id: inst.id, name: inst.name, status: inst.status, extra: inst.extra || null, reachable: null };
+  const out = { id: inst.id, name: inst.name, status: inst.status, extra: inst.extra || null, channel: ctx.channel, reachable: null };
 
   // 1) provider 侧元数据 + 容量（读 cgroup）
   let info = null;
@@ -78,6 +75,7 @@ async function run(argv) {
   const rows = [
     ['ID', out.id],
     ['名字', out.name || ui.c.dim('(未命名)')],
+    ['渠道', out.channel],
     ['状态', ui.statusBadge(out.status)],
   ];
   if (out.expiresAt) rows.push(['凭据到期', ui.til(out.expiresAt) + ' 后']);

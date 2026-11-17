@@ -6,9 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP } = require('../lib/platform/contract');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 function needFileChannel(p) {
@@ -25,11 +24,9 @@ async function putRun(argv) {
   const [ref, local, remote] = need(args, 3, 'put <实例> <本地文件> <沙箱内路径>');
   if (!fs.existsSync(local)) throw new Error('本地文件不存在：' + local);
 
-  const p = registry.get();
+  const { inst, ctx } = await pickTarget(ref, { log });
+  const p = ctx.provider;
   const how = needFileChannel(p);
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-  const inst = await resolveInstance(ctx, ref);
 
   const t0 = Date.now();
   const r = how === 'fs'
@@ -45,11 +42,9 @@ async function getRun(argv) {
   const [ref, remote] = need(args, 2, 'get <实例> <沙箱内路径> [本地路径]');
   const local = args._[2] || path.basename(remote);
 
-  const p = registry.get();
+  const { inst, ctx } = await pickTarget(ref, { log });
+  const p = ctx.provider;
   const how = needFileChannel(p);
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-  const inst = await resolveInstance(ctx, ref);
 
   if (how === 'fs') {
     const r = await p.fs.read(ctx, inst.id, { path: remote });

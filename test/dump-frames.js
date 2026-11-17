@@ -1,5 +1,12 @@
-const cfg = require('../lib/config');
-const s = cfg.readToken(process.argv[2]);
+// 调试用：拿某个实例的 E2B 访问凭据，直接打一次 envd 的 Process/Start，把原始帧打出来。
+//   node test/dump-frames.js <实例 id>
+// 凭据来自驱动自己的按实例缓存（~/.cowbird/tokens/<id>.json），全程不联网取 token。
+const cache = require('../lib/platform/workbuddy/lib/token-cache');
+const s = cache.readToken(process.argv[2]);
+if (!s) {
+  console.error('没有这个实例的凭据缓存：先跑一次 cowbird exec <实例> "true"');
+  process.exit(1);
+}
 (async () => {
   const base = s.e2bDataEndpoint.replace(/\/$/, '');
   const payload = Buffer.from(JSON.stringify({ process: { cmd: '/bin/sh', args: ['-lc', 'echo hi; exit 3'], envs: {}, cwd: '/workspace' } }));

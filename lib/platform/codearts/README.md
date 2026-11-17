@@ -29,7 +29,7 @@ node lib/platform/codearts/selftest.js     # 全 ✓，退出码 0
 
 | 能力 | 实现方式 |
 |---|---|
-| `auth` / `auth.browser` | cookie 文件（`<HOME>/platform/codearts/auth.json`）+ 浏览器取 cookie 或手动粘贴 |
+| `auth` / `auth.browser` | cookie 文件（`<HOME>/platform/codearts/accounts/<账号>/auth.json`，一个账号一份；老布局由内核一次性搬进 `default`）+ 浏览器取 cookie 或手动粘贴 |
 | `instances.list` | `GET /v1/cloudagent/sessions?page_num&page_size` |
 | `instances.create` | `POST /v1/cloudagent/sessions`（body `{}`）→ 需要名字再 `PUT {title}`；`--model` 记在该实例名下（平台建会话不收 model/prompt） |
 | `instances.rename` | `PUT /v1/cloudagent/sessions/{id}` body `{title}` |

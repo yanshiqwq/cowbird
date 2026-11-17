@@ -7,10 +7,9 @@
 // 两条通道在驱动里各自实现，内核不做平台假设。
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP, EVENT } = require('../lib/platform/contract');
 const { collect } = require('../lib/platform/stream');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,11 +21,8 @@ async function run(argv) {
   const text = args._.slice(1).join(' ');
   const wait = num(args.opts.wait, 15);
 
-  const p = registry.get();
-  p.require(CAP.AGENT);
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-  const inst = await resolveInstance(ctx, ref);
+  const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
+  const p = ctx.provider;
 
   // 观察窗：--raw 时逐事件打印（可按 --grep 过滤），否则把正文流式写出来
   const onEvent = args.opts.raw

@@ -76,10 +76,23 @@ function frame(obj) {
     assert.strictEqual(tokenStore.valid(null), false);
   });
   ok('token 存取：写进去能读回来，clear 之后读不到', () => {
-    tokenStore.write({ accessToken: 'tk-1', refreshToken: 'rf-1', expiresAt: Math.floor(Date.now() / 1000) + 60 });
-    assert.strictEqual(tokenStore.read().accessToken, 'tk-1');
-    tokenStore.clear();
-    assert.strictEqual(tokenStore.read(), null);
+    // 登录态挂在账号上（ctx.store），所以这里造一个最小 ctx —— 顺便证明驱动不再自己拼路径
+    const memStore = () => {
+      const m = new Map();
+      return {
+        read: (k, d = null) => (m.has(k) ? JSON.parse(m.get(k)) : d),
+        write: (k, v) => m.set(k, JSON.stringify(v)),
+        remove: (k) => m.delete(k),
+      };
+    };
+    const ctx = { store: memStore() };
+    tokenStore.write(ctx, { accessToken: 'tk-1', refreshToken: 'rf-1', expiresAt: Math.floor(Date.now() / 1000) + 60 });
+    assert.strictEqual(tokenStore.read(ctx).accessToken, 'tk-1');
+    // 换一个账号的 store：同一个驱动读不到别人的登录态（多账号共存的前提）
+    const other = { store: memStore() };
+    assert.strictEqual(tokenStore.read(other), null);
+    tokenStore.clear(ctx);
+    assert.strictEqual(tokenStore.read(ctx), null);
   });
   ok('会话级凭据缓存（E2B token）独立于登录态', () => {
     tokenCache.writeToken('123', { token: 'e2b-abc', expireAt: 1 });
@@ -277,10 +290,10 @@ function frame(obj) {
     return deps;
   };
 
-  ok('normalizeTargets 保留 script、id 转字符串', () => {
-    const t = normalizeTargets([{ id: 2118, name: 'a', script: 'heal/x.sh' }, '123']);
-    assert.deepStrictEqual(t[0], { id: '2118', name: 'a', script: 'heal/x.sh' });
-    assert.deepStrictEqual(t[1], { id: '123', name: '', script: '' });
+  ok('normalizeTargets 保留 script 与渠道、id 转字符串', () => {
+    const t = normalizeTargets([{ id: 2118, name: 'a', script: 'heal/x.sh', channel: 'workbuddy:main' }, '123']);
+    assert.deepStrictEqual(t[0], { id: '2118', name: 'a', script: 'heal/x.sh', channel: 'workbuddy:main' });
+    assert.deepStrictEqual(t[1], { id: '123', name: '', script: '', channel: '' });
   });
   ok('id 写成 JSON 数字会丢精度（所以文档要求写字符串）', () => {
     // 2123456789012345678 > 2^53，作为 Number 已经不准；这不是 bug，是必须写引号的原因

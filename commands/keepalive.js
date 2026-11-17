@@ -9,8 +9,7 @@
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
 const cfg = require('../lib/config');
-const registry = require('../lib/platform');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 const USAGE = 'keepalive [--nudge <秒>] [--max-nudges <次>] [--stall <秒>] [--duration <秒>] [--no-nudge] [--prompt <文案>] <实例>';
@@ -24,13 +23,12 @@ async function run(argv) {
   const [ref] = need(args, 1, USAGE);
   const k = cfg.readConfig().keepalive || {};
 
-  const p = registry.get();
+  const { inst, ctx } = await pickTarget(ref);
+  const p = ctx.provider;
   if (!p.keepalive || typeof p.keepalive.create !== 'function') {
     throw new Error(`本平台（${p.displayName}）不支持 keepalive：它依赖 ACP 的「提问挂着不答」语义。\n` +
       '  想让实例不被回收，用 daemon 的 heal（cowbird daemon targets add <实例>），或直接 cowbird exec。');
   }
-  const ctx = registry.context(p);
-  const inst = await resolveInstance(ctx, ref);
 
   const opts = {
     nudgeSec: num(args.opts.nudge, k.nudgeSec),

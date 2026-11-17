@@ -23,6 +23,7 @@ const COMMANDS = {
   login: { mod: '../commands/login', alias: [] },
   doctor: { mod: '../commands/doctor', alias: ['diag'] },
   daemon: { mod: '../commands/daemon', alias: ['d', 'svc'] },
+  account: { mod: '../commands/account', alias: ['accounts', 'ch', 'channels'] },
   platform: { mod: '../commands/platform', alias: ['providers', 'drivers'] },
 };
 
@@ -42,6 +43,10 @@ function extractGlobals(argv) {
     if (a === '--local') { process.env.COWBIRD_LOCAL = '1'; continue; }
     if (a === '--platform') { process.env.COWBIRD_PLATFORM = argv[++i]; continue; }
     if (a.startsWith('--platform=')) { process.env.COWBIRD_PLATFORM = a.slice(11); continue; }
+    if (a === '--account') { process.env.COWBIRD_ACCOUNT = argv[++i]; continue; }
+    if (a.startsWith('--account=')) { process.env.COWBIRD_ACCOUNT = a.slice(10); continue; }
+    if (a === '--channel') { process.env.COWBIRD_CHANNEL = argv[++i]; continue; }
+    if (a.startsWith('--channel=')) { process.env.COWBIRD_CHANNEL = a.slice(10); continue; }
     if (a === '--remote') { process.env.COWBIRD_DAEMON_URL = argv[++i]; continue; }
     if (a.startsWith('--remote=')) { process.env.COWBIRD_DAEMON_URL = a.slice(9); continue; }
     if (a.startsWith('--token=')) { process.env.COWBIRD_DAEMON_TOKEN = a.slice(8); continue; }
@@ -70,9 +75,10 @@ function help() {
     ['login', '登录'],
     ['doctor', '自检'],
     ['daemon', '常驻进程'],
+    ['account', '账号与渠道'],
     ['platform', '平台驱动'],
   ];
-  console.log(ui.c.bold(`cowbird ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台）'));
+  console.log(ui.c.bold(`cowbird ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台多账号）'));
   console.log('\n' + ui.c.bold('用法') + ':  cowbird <命令> [选项] [参数]');
   console.log('\n' + ui.table(['命令', '说明'], cmdRows));
 
@@ -81,22 +87,25 @@ ${ui.c.bold('实例引用方式：')}
   1. 完整 id（2123456789012345678）
   2. 会话名（work-01）
   3. 短序号（01）
+  4. 带渠道（qoder:alt/01）—— 同名实例分属不同账号时用这个
 
 ${ui.c.bold('全局开关')}
-  写在命令之前，例如 cowbird --local ls
+  写在命令之前，例如 cowbird --channel qoder:alt ls
   --local                 使用本地凭据
-  --platform <id>         切换平台驱动
+  --channel <平台[:账号]>  指定渠道
+  --platform <id>         指定平台（账号取默认）
+  --account <名字>        指定账号（平台取默认）
   --remote <地址>         使用远程 daemon
   --token <令牌>          配合 --remote
 
 ${ui.c.bold('环境变量')}
-  COWBIRD_HOME           数据目录（默认 ~/.cowbird）
+  COWBIRD_HOME              数据目录（默认 ~/.cowbird）
   COWBIRD_PLATFORM          默认平台
+  COWBIRD_ACCOUNT           默认账号
+  COWBIRD_CHANNEL           默认渠道（平台:账号）
   COWBIRD_PLATFORM_MODULE   第三方驱动
   COWBIRD_DAEMON_URL        等同于 --remote
   COWBIRD_DAEMON_TOKEN      等同于 --token
-  COWBIRD_PW_MODULE         playwright-core 的位置
-  COWBIRD_BROWSER           chromium/edge 可执行文件路径
 `);
   console.log(ui.c.dim('运行 `cowbird <命令> --help` 查看该命令的选项与退出码'));
   return 0;

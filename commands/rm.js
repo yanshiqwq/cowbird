@@ -2,25 +2,24 @@
 // 默认是 dry-run：只打印"会删什么"，加 --yes 才真删（删错了容器里的东西就没了）
 const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP } = require('../lib/platform/contract');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 async function run(argv) {
   const args = parse(argv, { flags: ['yes', 'archive', 'json'], aliases: { y: 'yes' } });
   const [ref] = need(args, 1, 'rm <实例> [--archive] [--yes]');
 
-  const p = registry.get();
+  const { inst, ctx } = await pickTarget(ref, { log });
+  const p = ctx.provider;
   if (!p.has(CAP.REMOVE)) throw new Error(`本平台（${p.displayName}）不支持删除实例`);
-  const ctx = registry.context(p);
-  const inst = await resolveInstance(ctx, ref);
   const action = args.opts.archive ? '归档' : '删除';
 
   if (!args.opts.yes) {
     console.log(ui.c.yellow('DRY-RUN') + `  将${action}实例：`);
     console.log(`  id   ${inst.id}`);
     console.log(`  名字 ${inst.name || ui.c.dim('(未命名)')}`);
+    console.log(`  渠道 ${ctx.channel}`);
     console.log(`  状态 ${ui.statusBadge(inst.status)}`);
     if (inst.status === 'working' || inst.status === 'running') {
       console.log(ui.c.red('  ⚠ 这个实例正在干活，删了会把正在跑的任务一起干掉'));

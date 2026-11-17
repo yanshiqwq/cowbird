@@ -4,10 +4,9 @@
 // 所以同一条命令既能看 WorkBuddy 的 ACP，也能看码道的具名 SSE、Qoder 的轮询增量。
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP, EVENT } = require('../lib/platform/contract');
 const { describe } = require('../lib/platform/stream');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 const USAGE = 'watch [--duration <秒>] [--raw] [--grep <词>] <实例>';
@@ -51,13 +50,10 @@ async function run(argv) {
   const [ref] = need(args, 1, USAGE);
   const sec = num(args.opts.duration || args.opts.sec, 20);
 
-  const p = registry.get();
-  p.require(CAP.AGENT);
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-  const inst = await resolveInstance(ctx, ref);
+  const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
+  const p = ctx.provider;
 
-  log(`连上 ${inst.name || inst.id}（${p.displayName}），观听 ${sec}s…`);
+  log(`连上 ${inst.name || inst.id}（${p.displayName} · ${ctx.channel}），观听 ${sec}s…`);
   const print = printer(args.opts);
   const stream = p.agent.stream(ctx, inst.id, {});
   const deadline = Date.now() + sec * 1000;

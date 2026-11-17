@@ -401,7 +401,7 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 
 ### 7.5 store 里会留下什么
 
-`<COWBIRD_HOME>/platform/minimax/`（`registry.context()` 给的目录，权限 0600）：
+`<COWBIRD_HOME>/platform/minimax/accounts/<账号>/`（`ctx.store.dir`，一个账号一份、互相看不见，权限 0600；老布局由内核一次性搬进 `default`）：
 
 | 文件 | 内容 |
 |---|---|

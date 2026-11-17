@@ -9,10 +9,9 @@ const fs = require('fs');
 const { parse, need, num } = require('../lib/args');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP, EVENT } = require('../lib/platform/contract');
 const { describe } = require('../lib/platform/stream');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 const USAGE = 'history [--duration <秒>] [--limit <条>] [--out <目录>] [--json] <实例>';
@@ -47,14 +46,11 @@ async function run(argv) {
   const args = parse(argv, { values: ['duration', 'sec', 'out', 'limit'], flags: ['json'], aliases: { s: 'duration' } });
   const [ref] = need(args, 1, USAGE);
 
-  const p = registry.get();
-  p.require(CAP.AGENT);
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
+  const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
+  const p = ctx.provider;
   if (!p.agent || typeof p.agent.history !== 'function') {
     throw new Error(`本平台（${p.displayName}）没有提供历史接口`);
   }
-  const inst = await resolveInstance(ctx, ref);
 
   const opts = {
     maxWaitMs: num(args.opts.duration || args.opts.sec, 12) * 1000,

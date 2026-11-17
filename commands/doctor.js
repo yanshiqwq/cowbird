@@ -76,8 +76,29 @@ async function run(argv) {
     add('bad', '平台', String(e.message).slice(0, 160));
   }
 
+  // ---- 渠道：每个「平台:账号」一行（多账号 / 多平台同时挂时一眼看清谁还能用）----
+  const channels = require('../lib/platform/channels');
+  let chs = [];
+  try { chs = channels.all(); } catch (e) { add('warn', '渠道', String(e.message).slice(0, 140)); }
+  for (const ch of chs) {
+    let d;
+    try { d = await channels.describeLogin(ch); } catch (e) { add('warn', `渠道 ${ch.key}`, String(e.message).slice(0, 140)); continue; }
+    const bits = [d.displayName];
+    if (d.who) bits.push(d.who);
+    if (!d.hasCred) bits.push('未登录');
+    else if (d.ttlDays == null) bits.push('凭据剩余未知');
+    else if (d.ttlDays <= 0) bits.push('凭据已过期');
+    else bits.push('剩余 ' + d.ttlDays.toFixed(1) + ' 天');
+    bits.push(d.files + ' 份状态');
+    const level = !d.hasCred ? 'warn' : d.ttlDays != null && d.ttlDays <= 0 ? 'bad' : d.ttlDays != null && d.ttlDays < 3 ? 'warn' : 'ok';
+    add(level, `渠道 ${ch.key}`, bits.join(' · '));
+  }
+  if (!chs.length) {
+    add('warn', '渠道', '还没有任何登录态。先跑 cowbird login（要多账号就加 --as <名字>）');
+  }
+
   // 驱动自己的体检项：平台专属的检查（登录态/接口/实例缓存/保活目标/浏览器…）都在驱动里，
-  // 内核只提供 node / 数据目录 / daemon 这些跨平台项。
+  // 内核只提供 node / 数据目录 / 渠道 / daemon 这些跨平台项。
   const hasProviderChecks = Boolean(provider && provider.doctor && typeof provider.doctor.checks === 'function');
 
   // 驱动自己的体检项（最后跑，同名覆盖历史检查）
@@ -133,8 +154,9 @@ module.exports = {
     '  --json     输出 JSON',
     '',
     '说明:',
-    '  按依赖顺序体检：node → 数据目录 → 登录态 → 接口 → 实例/凭据 → daemon → 浏览器。',
-    '  「接口」一项会真发一次请求（--no-net 时跳过），所以能区分「cookie 过期」和「UA 不匹配」。',
+    '  按依赖顺序体检：node → 数据目录 → 平台 → 渠道 → 登录态 → 接口 → 实例/凭据 → daemon。',
+    '  「渠道」一项每个「平台:账号」一行，多账号 / 多平台同时挂时一眼看清谁还能用。',
+    '  某个渠道要看细节：cowbird --channel <渠道> doctor。',
     '',
     '退出码:',
     '  0  没有异常项（警告不影响退出码）',

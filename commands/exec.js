@@ -10,10 +10,9 @@ const fs = require('fs');
 const { parse, need, num } = require('../lib/args');
 const ui = require('../lib/ui');
 const log = require('../lib/log').log;
-const registry = require('../lib/platform');
 const { CAP } = require('../lib/platform/contract');
 const execCore = require('../lib/platform/exec');
-const { resolveInstance } = require('../lib/platform/target');
+const { pickTarget } = require('../lib/platform/target');
 
 const USAGE = 'exec [--timeout <秒>] [--background] [--json] <实例> <命令...>   或   exec <实例> -f <脚本>';
 
@@ -32,13 +31,6 @@ async function run(argv) {
   });
   const [ref] = need(args, 1, USAGE);
 
-  const p = registry.get();
-  if (!p.has(CAP.EXEC)) {
-    const e = new Error(noExecHint(p));
-    e.code = 'E_CAPABILITY';
-    throw e;
-  }
-
   const rest = args._.slice(1);
   // 兼容老写法 `exec <实例> -f 脚本.sh`：只有"命令"恰好是 -f/--file + 一个路径时才当文件读，
   // 免得把 `ls -f` 这种真的想跑的东西误判。
@@ -49,10 +41,14 @@ async function run(argv) {
   else cmd = rest.join(' ');
   if (!cmd) throw new Error('用法: cowbird ' + USAGE);
 
-  const ctx = registry.context(p);
-  ctx.log = (m) => log(m);
-
-  const inst = await resolveInstance(ctx, ref);
+  // 先解析到渠道（可能是别的平台/账号），再按**命中的**平台判能力
+  const { inst, ctx } = await pickTarget(ref, { log });
+  const p = ctx.provider;
+  if (!p.has(CAP.EXEC)) {
+    const e = new Error(noExecHint(p));
+    e.code = 'E_CAPABILITY';
+    throw e;
+  }
   const timeoutMs = num(args.opts.timeout, 0) > 0 ? num(args.opts.timeout, 0) * 1000 : undefined;
   const waitMs = num(args.opts.wait, 0) > 0 ? num(args.opts.wait, 0) * 1000 : 0;
 

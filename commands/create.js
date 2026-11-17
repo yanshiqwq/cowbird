@@ -3,22 +3,22 @@
 // 平台差异：有的平台创建接口不认名字（要建完再改一次），有的接受 model/prompt，
 // 这些细节由 provider 处理；命令层只负责把「名字 / 模型 / 首条指令」传下去。
 const { parse, need } = require('../lib/args');
-const cfg = require('../lib/config');
 const ui = require('../lib/ui');
-const registry = require('../lib/platform');
 const { CAP } = require('../lib/platform/contract');
+const channels = require('../lib/platform/channels');
 const log = require('../lib/log').log;
 
 async function run(argv) {
   const args = parse(argv, {
     flags: ['json'],
-    values: ['model', 'prompt'],
+    values: ['model', 'prompt', 'channel', 'account', 'platform'],
   });
   const [name] = need(args, 1, 'create <名字> [--model <模型>] [--prompt "初始指令"]');
 
-  const p = registry.get();
+  const ch = channels.preferred({ channel: args.opts.channel, platform: args.opts.platform, account: args.opts.account });
+  const p = ch.provider;
   if (!p.has(CAP.CREATE)) throw new Error(`本平台（${p.displayName}）不支持建实例`);
-  const ctx = registry.context(p);
+  const ctx = ch.ctx;
 
   // 默认模型由驱动给（ctx.effective 是 provider.defaults + 用户配置合并后的结果）
   const model = args.opts.model || ctx.effective.model || '';
@@ -31,6 +31,7 @@ async function run(argv) {
   if (args.opts.json) { console.log(JSON.stringify(inst, null, 2)); return 0; }
 
   console.log(ui.c.green('OK') + ` 实例 ${ui.c.bold(name)}  id=${inst.id}`);
+  console.log(`  渠道     ${ctx.channel}`);
   console.log(`  状态     ${ui.statusBadge(inst.status)}`);
   if (inst.extra && inst.extra.sessionStatus) console.log(`  会话     ${ui.statusBadge(inst.extra.sessionStatus)}`);
 
@@ -48,6 +49,7 @@ module.exports = {
     '选项:',
     '  --model <模型>   默认取 provider 的默认模型（cowbird platform 里能看到）',
     '  --prompt <文本>  初始指令',
+    '  -c, --channel <渠道>  建在哪个渠道（平台[:账号]），默认用默认渠道',
     '',
     '说明:',
     '  一个实例 = 一个会话 + 一个沙箱。不同平台的创建细节（要不要二次改名、prompt 长度限制）',
