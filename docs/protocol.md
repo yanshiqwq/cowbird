@@ -27,7 +27,7 @@
 ## 一、网页版接口
 
 baseURL `https://www.workbuddy.cn`，鉴权是**登录 cookie + 登录时的 UA**（见上）。
-`lib/session.js` 负责拿这份状态发纯 HTTP 请求，浏览器只在 `wbsbx login` 时出现。
+`lib/session.js` 负责拿这份状态发纯 HTTP 请求，浏览器只在 `cowbird login` 时出现。
 
 | 用途 | 接口 | 备注 |
 |---|---|---|

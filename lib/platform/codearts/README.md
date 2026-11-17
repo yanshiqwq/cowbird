@@ -1,6 +1,6 @@
 # codearts —— 华为云「码道 CodeArts」平台驱动
 
-`wbsbx` 的第二个真实平台驱动。基址 `https://devcloud.cn-north-4.huaweicloud.com/chat`。
+`cowbird` 的第二个真实平台驱动。基址 `https://devcloud.cn-north-4.huaweicloud.com/chat`。
 
 一句话概括：**会话/回合走云侧 REST + 具名 SSE，免 LLM 的 exec 走"预览代理 → 沙箱内 agentkernel 的 `/shell`"这条隐藏隧道**，同步上限 30 秒。所有协议事实来自 `码道CodeArts-平台完整调查报告.md`（实测为主），本目录是把那份报告变成契约形状的代码。
 
@@ -39,7 +39,7 @@ node lib/platform/codearts/selftest.js     # 全 ✓，退出码 0
 | `agent.question`（`answer`） | `POST /v1/cloudagent/sessions/{id}/messages/reply` |
 | `agent.interrupt` | `POST /v1/cloudagent/sessions/{id}/messages/stop` |
 | `exec`（`probe`/`run`） | 预览隧道 `POST …/sessions/{sid}/9800/preview/session/{ksid}/shell` |
-| `exec.background`（`start`/`poll`） | `nohup … &` 写 `/workspace/.wbsbx/<job>.log`，`poll` 用 shell `cat` |
+| `exec.background`（`start`/`poll`） | `nohup … &` 写 `/workspace/.cowbird/<job>.log`，`poll` 用 shell `cat` |
 | `exec.wake` | 发一条最小 prompt（"执行 `true` 并回复 ok。"）→ 轮询详情直到 `agent_session_id` 出现 |
 | `fs`（`list`/`read`/`write`） | `files/tree`、`files/content`；写走 shell base64 分块（60KB/块） |
 | `model` | `GET /PromptCenterService/v1/model/builtin` |
@@ -114,7 +114,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 
 | # | 未验证项 | 现在的做法 | 万一不对的表现 / 怎么改 |
 |---|---|---|---|
-| 1 | **命令包装层**（`( cmd ) 2>tmp` + `__WBSBX_RC=` + `__WBSBX_STDERR__`）能否被 agentkernel 的 bash 工具原样接受 | 每条命令多打两行标记，驱动负责拆回 out/err/code | 若内核改写输出或裁剪尾部，标记会找不到 → 驱动自动降级为 `wrapped:false`（只给原始输出、退出码 null），不会谎报 0。真实环境请先跑 `wbsbx exec <id> 'echo hi; exit 3'`，看 code 是否为 3 |
+| 1 | **命令包装层**（`( cmd ) 2>tmp` + `__COWBIRD_RC=` + `__COWBIRD_STDERR__`）能否被 agentkernel 的 bash 工具原样接受 | 每条命令多打两行标记，驱动负责拆回 out/err/code | 若内核改写输出或裁剪尾部，标记会找不到 → 驱动自动降级为 `wrapped:false`（只给原始输出、退出码 null），不会谎报 0。真实环境请先跑 `cowbird exec <id> 'echo hi; exit 3'`，看 code 是否为 3 |
 | 2 | `files/content` 的**信封嵌套**（`{result:{type:'text',content}}` 还是平铺 / `{data:…}`） | 三个候选都试（`result`/`data`/根），读不到就退回 shell `base64` | 退回路径是通的（19 已验证），只是慢一点；看到 `via:'shell'` 就说明信封猜错了 |
 | 3 | `files/tree` 的信封与 `path` 语义（根固定 `/workspace`） | `treeNode()` 试 `result`/`data`/`tree`/根；`findNode()` 按 `path` 精确定位 | 列表为空但文件其实存在 → 调 `fs.list` 时把 `path` 传成根或改成 `recursive:true` |
 | 4 | `PUT /sessions/{id}` 改名后详情是否立刻反映新标题 | 改完再 `GET` 一次；失败则用传入的 title 兜底 | 名字短暂为空是平台已知的异步改名行为，内核侧应保留旧名 |
@@ -128,7 +128,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 | 12 | `tool_authorization` 的真实帧 | 映射成 `permission`，`requestId=permission_id` | 当前账号 bash 是 `always_allow`、`CODEAGENT_PERMISSION_AUTO_ALLOW=true`，实测不触发；**平台没有暴露回复权限的接口**，所以驱动只报告不回复 |
 | 13 | 沙箱精确回收 TTL（两次观测 30–40 分钟） | 不猜：每次 exec 前 `probe`，不 ready 就报 `no-sandbox` 让上层 `wake` | 被回收后 `agent_session_id` 是否复用同样未知；驱动不缓存它，每次现取 |
 | 14 | 重建后 `/workspace` 从 OBS 快照异步恢复（会覆盖新写入） | 驱动无对策（平台行为） | 长任务日志建议放 `/mnt/data/`（报告建议） |
-| 15 | 沙箱内 `mktemp` / `base64 -d` / `wc -c` / `nohup` / `kill -0` 都在 | 依赖 coreutils（EulerOS 3.0 自带） | `mktemp` 已带 `/tmp/.wbsbx-err-$$` 兜底；其余若缺失会体现在 `wrapped:false` 或 rc≠0 |
+| 15 | 沙箱内 `mktemp` / `base64 -d` / `wc -c` / `nohup` / `kill -0` 都在 | 依赖 coreutils（EulerOS 3.0 自带） | `mktemp` 已带 `/tmp/.cowbird-err-$$` 兜底；其余若缺失会体现在 `wrapped:false` 或 rc≠0 |
 
 ---
 
@@ -143,7 +143,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 
 ```bash
 npm i playwright-core            # 可选依赖；没有就用 B 方案
-wbsbx login --platform codearts  # 打开登录页，扫码/短信；登进去后自动抓 cookie 存盘
+cowbird login --platform codearts  # 打开登录页，扫码/短信；登进去后自动抓 cookie 存盘
 ```
 
 `login` 用的是**一次性上下文**（不是 WorkBuddy 那种持久 profile）：本平台不绑 UA，也不需要留浏览器痕迹。
@@ -157,7 +157,7 @@ document.cookie   // 复制整串（注意 HttpOnly 的 J 那一条在 Applicati
 ```
 
 ```bash
-wbsbx login --platform codearts --cookie 'devclouddevuibjJ_SESSION_ID=…; devclouddevuibjtcftk=…; devclouddevuibjagencyID=…'
+cowbird login --platform codearts --cookie 'devclouddevuibjJ_SESSION_ID=…; devclouddevuibjtcftk=…; devclouddevuibjagencyID=…'
 ```
 
 驱动只保留 `huaweicloud.com` 域的 cookie，并校验 `devclouddevuibjJ_SESSION_ID` 必须在。
@@ -165,39 +165,39 @@ wbsbx login --platform codearts --cookie 'devclouddevuibjJ_SESSION_ID=…; devcl
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
-wbsbx doctor --platform codearts          # 登录态 / GET /rest/me / 会话列表 / 浏览器
-wbsbx ls --platform codearts              # 列表；注意 total 与页大小
-wbsbx ls --platform codearts --refresh
+cowbird doctor --platform codearts          # 登录态 / GET /rest/me / 会话列表 / 浏览器
+cowbird ls --platform codearts              # 列表；注意 total 与页大小
+cowbird ls --platform codearts --refresh
 ```
 
 > 若 `doctor` 报 `登录态` error，先确认是不是**过期**：cookie 全是 session cookie，关浏览器/SSO 空闲超时即失效，只能重抓。
 
 ```bash
 # 新建（建完没有沙箱，agent_session_id 为空 —— 这是正常的）
-wbsbx create --platform codearts --name probe-01
+cowbird create --platform codearts --name probe-01
 
 # 一定要先 wake：沙箱只能靠"真跑一轮 agent"创建，POST /start 实测无效
-wbsbx wake --platform codearts <实例>     # 约 0.2 credit
+cowbird wake --platform codearts <实例>     # 约 0.2 credit
 
 # 免 LLM exec（tokens=0、cost=0、不进对话历史）
-wbsbx exec --platform codearts <实例> 'id; uname -smr; df -h / | tail -1'
-wbsbx exec --platform codearts <实例> 'echo hi; exit 3'     # 校验退出码是不是 3
-wbsbx info --platform codearts <实例>                       # 可见 vs 配额（cgroup v2/v1）
+cowbird exec --platform codearts <实例> 'id; uname -smr; df -h / | tail -1'
+cowbird exec --platform codearts <实例> 'echo hi; exit 3'     # 校验退出码是不是 3
+cowbird info --platform codearts <实例>                       # 可见 vs 配额（cgroup v2/v1）
 ```
 
 30 秒是硬顶，长任务用后台：
 
 ```bash
-wbsbx exec --platform codearts --background <实例> 'sleep 45; echo LONG-DONE'
-wbsbx exec --platform codearts --poll <实例> <jobId>
+cowbird exec --platform codearts --background <实例> 'sleep 45; echo LONG-DONE'
+cowbird exec --platform codearts --poll <实例> <jobId>
 ```
 
 回合与提问：
 
 ```bash
-wbsbx prompt --platform codearts <实例> '只回复 ok'
-wbsbx prompt --platform codearts <实例> '问我最喜欢哪种水果'   # 出现提问 → 记下 question_id
-wbsbx answer --platform codearts <实例> --question <question_id> --option 苹果
+cowbird prompt --platform codearts <实例> '只回复 ok'
+cowbird prompt --platform codearts <实例> '问我最喜欢哪种水果'   # 出现提问 → 记下 question_id
+cowbird answer --platform codearts <实例> --question <question_id> --option 苹果
 ```
 
 ### 4.3 判断"驱动是对的"的最小证据集
@@ -290,8 +290,8 @@ wbsbx answer --platform codearts <实例> --question <question_id> --option 苹�
    prompt 就去 exec 会连续撞 `Session … is busy`。
    → `exec.probe` 现在要求「有 kernel session **且** 会话不在跑」才算 ready；
    内核见到 `why==='busy'` **不去 wake**（那是白花钱），只等它空下来。
-3. **平台会拿首条消息自动改标题**：`create --name wbsbx-probe` 之后 wake 那一轮就变成
-   `执行 true 命令并回复 ok`，`exec wbsbx-probe` 直接找不到实例。
+3. **平台会拿首条消息自动改标题**：`create --name cowbird-probe` 之后 wake 那一轮就变成
+   `执行 true 命令并回复 ok`，`exec cowbird-probe` 直接找不到实例。
    → `create` 把名字记进 store，`execWake` 结束时 best-effort 改回来；**但用 id 永远最稳**。
 
 另外记两条实测数字：`create` 不花 credit 也不建沙箱（沙箱只在真正一轮 agent 时才建）；

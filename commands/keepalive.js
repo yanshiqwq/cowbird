@@ -1,4 +1,4 @@
-// wbsbx keepalive —— 把会话钉在「等用户回答」上（长驻，Ctrl-C 结束）
+// cowbird keepalive —— 把会话钉在「等用户回答」上（长驻，Ctrl-C 结束）
 //
 // 和 daemon 的 heal 是两件事：
 //   heal      每 10 分钟一次 exec（便宜、不进对话记录、保证不被回收）
@@ -27,7 +27,7 @@ async function run(argv) {
   const p = registry.get();
   if (!p.keepalive || typeof p.keepalive.create !== 'function') {
     throw new Error(`本平台（${p.displayName}）不支持 keepalive：它依赖 ACP 的「提问挂着不答」语义。\n` +
-      '  想让实例不被回收，用 daemon 的 heal（wbsbx daemon targets add <实例>），或直接 wbsbx exec。');
+      '  想让实例不被回收，用 daemon 的 heal（cowbird daemon targets add <实例>），或直接 cowbird exec。');
   }
   const ctx = registry.context(p);
   const inst = await resolveInstance(ctx, ref);

@@ -1,14 +1,31 @@
-# wbsbx
+# cowbird
 
-[![CI](https://github.com/yanshiqwq/wbsbx/actions/workflows/ci.yml/badge.svg)](https://github.com/yanshiqwq/wbsbx/actions/workflows/ci.yml)
+[![CI](https://github.com/yanshiqwq/cowbird/actions/workflows/ci.yml/badge.svg)](https://github.com/yanshiqwq/cowbird/actions/workflows/ci.yml)
 
 > **非官方项目。** 用你自己的账号登录、只管你自己的实例，不自带任何凭据、不做提权、不绕过计费。
-> 使用的是该服务的网页接口，**可能违反其服务条款**，风险自负。详见 [DISCLAIMER.md](DISCLAIMER.md)。
+> 使用的是各平台的网页接口，**可能违反其服务条款**，风险自负。详见 [DISCLAIMER.md](DISCLAIMER.md)。
 
-WorkBuddy 云沙箱管理器。分两半：
+**把各大网页 agent 自带的沙箱 shell，包装成一套统一的云沙箱管理器。**
 
-- **`wbsbx`（客户端）** —— 列实例、建删改、在容器里直接跑命令、收发文件、看对话历史。纯 CLI，不常驻。
-- **`wbsbx-daemon`（守护进程）** —— 替你把实例「续着」，顺手维护登录态。跑在哪儿都行：自己的电脑、一台小 VPS、一个容器。
+名字来自**牛鹂**（cowbird）——一种自己不筑巢的鸟，把蛋下在别人巢里，让别人替它养大。
+这个工具干的是同一件事：不买机器、不开容器，直接借用 WorkBuddy / 码道 CodeArts / Qoder / MiniMax
+这些平台的会话沙箱，把命令塞进去跑，再包成 `ls` / `exec` / `cp` 这一套你我都熟的 CLI。
+
+分两半：
+
+- **`cowbird`（客户端）** —— 列实例、建删改、在容器里直接跑命令、收发文件、看对话历史。纯 CLI，不常驻。
+- **`cowbird-daemon`（守护进程）** —— 替你把实例「续着」，顺手维护登录态。跑在哪儿都行：自己的电脑、一台小 VPS、一个容器。
+
+平台差异全在 `lib/platform/<id>/` 里，内核不认识任何具体平台 —— 加一个平台只写一个目录（见 [docs/providers.md](docs/providers.md)）。
+
+| 平台 | 执行通道 | 备注 |
+|---|---|---|
+| WorkBuddy | E2B `envd`（connect+json 五字节帧） | 沙箱能活 22 小时；只有 accessToken 认证 |
+| 码道 CodeArts | 内核 `/9800/shell` | 同步硬顶 30s，超时要转后台 |
+| Qoder | 沙箱 MCP（JSON-RPC） | 120s 默认 / 600s 最大，支持原生后台 |
+| MiniMax | **没有**执行通道 | 只读：列表 / 详情 / 历史 |
+
+> 早期版本叫 `wbsbx`（WorkBuddy-only）。改名后旧命令与环境变量仍可用，见 [CHANGELOG](CHANGELOG.md)。
 
 ## 它到底解决什么问题
 
@@ -21,12 +38,12 @@ WorkBuddy 云沙箱管理器。分两半：
 
 ```
         ┌──────────────┐        每隔 10 分钟 exec 一下
-        │  wbsbx-daemon│ ───────────────────────────────► 云端实例
+        │  cowbird-daemon│ ───────────────────────────────► 云端实例
         │  （常驻）     │        到期前刷 token / 换 cookie
         └──────┬───────┘
                │  HTTP（凭据 + 状态）
         ┌──────▼───────┐
-        │  wbsbx CLI   │ ──── 你敲命令的地方，可以在另一台机器上
+        │  cowbird CLI   │ ──── 你敲命令的地方，可以在另一台机器上
         └──────────────┘
 ```
 
@@ -37,9 +54,9 @@ CLI 和 daemon 共享同一个数据目录，但**谁都不依赖谁**：daemon 
 **还没发到 npm**，目前只有源码安装：
 
 ```bash
-git clone https://github.com/yanshiqwq/wbsbx.git
-cd wbsbx
-node bin/wbsbx.js --help          # 不安装，直接用
+git clone https://github.com/yanshiqwq/cowbird.git
+cd cowbird
+node bin/cowbird.js --help          # 不安装，直接用
 
 # 想当全局命令用
 npm link                          # 或者 npm i -g .
@@ -54,35 +71,35 @@ docker compose up -d
 
 ```bash
 # 1. 登录（打印链接，在微信里打开授权）
-wbsbx login
+cowbird login
 
 # 2. 看看有哪些实例
-wbsbx ls
+cowbird ls
 # ID                   名字        状态                  最近活动  凭据剩余
 # 2120000000000000000  work-01     completed/completed   2.8d      2.9d
 
 # 3. 进去跑条命令（走 E2B，不惊动 Agent，也不进对话记录）
-wbsbx exec work-01 "uname -a"
+cowbird exec work-01 "uname -a"
 
 # 4. 让它别被回收
-wbsbx daemon start --detach
-wbsbx daemon targets add work-01
-wbsbx daemon status
+cowbird daemon start --detach
+cowbird daemon targets add work-01
+cowbird daemon status
 ```
 
 想让一台服务器替你续命（关掉电脑也不影响）：
 
 ```bash
 # 服务器上
-docker compose up -d          # 或者 npm i -g wbsbx && wbsbx-daemon
+docker compose up -d          # 或者 npm i -g cowbird && cowbird-daemon
 
 # 把登录态推过去（token，一个文件）
-wbsbx login                      # 本机授权
-scp ~/.wbsbx/platform/workbuddy/device-token.json 服务器:/path/to/data/platform/workbuddy/
+cowbird login                      # 本机授权
+scp ~/.cowbird/platform/workbuddy/device-token.json 服务器:/path/to/data/platform/workbuddy/
 
 # 本机指向那台 daemon
-wbsbx daemon pair http://服务器:8787 --token <它生成的令牌>
-wbsbx daemon status
+cowbird daemon pair http://服务器:8787 --token <它生成的令牌>
+cowbird daemon status
 ```
 
 ## 命令
@@ -111,12 +128,12 @@ wbsbx daemon status
 ## daemon
 
 ```bash
-wbsbx daemon start [--detach]    # 启动
-wbsbx daemon status              # 各轮结果、登录态还剩几天
-wbsbx daemon logs -f             # 跟踪日志
-wbsbx daemon targets add 01      # 加进保活名单
-wbsbx daemon heal|refresh|renew  # 立刻跑一轮
-wbsbx daemon install             # 生成 systemd / 计划任务配置（只打印，不擅自改系统）
+cowbird daemon start [--detach]    # 启动
+cowbird daemon status              # 各轮结果、登录态还剩几天
+cowbird daemon logs -f             # 跟踪日志
+cowbird daemon targets add 01      # 加进保活名单
+cowbird daemon heal|refresh|renew  # 立刻跑一轮
+cowbird daemon install             # 生成 systemd / 计划任务配置（只打印，不擅自改系统）
 ```
 
 它在做三件事，周期不同、互不影响：
@@ -129,7 +146,7 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 
 `renew` 是纯 HTTP（拿 refreshToken 换 accessToken），没有浏览器依赖。
 默认关，按 `renew.whenDays` 判断要不要续；`renew.always = true` 则每轮都续一次。
-续期失败（refreshToken 也过期了）就只能重新 `wbsbx login`。
+续期失败（refreshToken 也过期了）就只能重新 `cowbird login`。
 
 保活有两种模式，由目标自己声明：**探针**（默认，跑一条短命令）和**脚本**（把本地脚本送进去跑，
 用于全量自愈）。脚本可读不到就直接算失败 —— 不会静默退回探针，配置写错要在体检里当场看见。
@@ -152,14 +169,14 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 - `targets[].script` 相对 `scriptsDir` 解析（绝对路径则原样用）；省略就是探针模式。
 - 脚本的输出按前缀分拣：`ACTION:` / `ERROR:` 收进本轮记录并单独打一行，`STATE:` 作为状态快照。
   **`ERROR:` 不算本轮失败**（那通常是要人去处理的隐患，不是链路断了），但会在
-  `wbsbx daemon status` 里显示成「N 条告警」。
+  `cowbird daemon status` 里显示成「N 条告警」。
 - `timeoutSec` 默认 120：脚本模式最坏路径要跑一遍完整的开机流程，60 秒会先放手。
 - ⚠ **`id` 必须写成字符串**。这些 id 超过 2^53，写成 JSON 数字会被 JS 静默舍入，
   最后表现为「实例不存在」。
 
-`wbsbx doctor` 会额外检查一项「保活目标」：配了 `script` 但文件不存在，直接标红并退出 1。
+`cowbird doctor` 会额外检查一项「保活目标」：配了 `script` 但文件不存在，直接标红并退出 1。
 
-配置在 `$WB_CLOUD_HOME/wbsbx.json`（默认 `~/.wbsbx/wbsbx.json`）。改完不用重启，下一轮就生效。
+配置在 `$COWBIRD_HOME/cowbird.json`（默认 `~/.cowbird/cowbird.json`）。改完不用重启，下一轮就生效。
 
 ## keepalive —— 另一种续命方式
 
@@ -178,16 +195,16 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 
 ```bash
 # 前台跑，Ctrl-C 结束
-wbsbx keepalive work-01
+cowbird keepalive work-01
 
 # 只观察不催话（验证链路用，不留痕）
-wbsbx keepalive work-01 --no-nudge
+cowbird keepalive work-01 --no-nudge
 
 # 催话间隔 5 分钟、最多催 10 次、跑 2 小时后自动退
-wbsbx keepalive work-01 --nudge 300 --max-nudges 10 --duration 7200
+cowbird keepalive work-01 --nudge 300 --max-nudges 10 --duration 7200
 
 # 长期跑（Windows 计划任务 / Linux 同理）
-nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
+nohup cowbird keepalive work-01 > keepalive.log 2>&1 &
 ```
 
 ⚠ 三个前提：① 那个 agent 会**永远停在那句提问上**，别对还要继续干活的会话开；
@@ -199,7 +216,7 @@ nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
 状态 平台=pending/pending sse=working busy=true 挂起=1 静默=59s 催=0 conn=up
 ```
 
-- `平台=` 来自控制面（跟 `wbsbx ls --refresh` 同一个取法），是**权威值**
+- `平台=` 来自控制面（跟 `cowbird ls --refresh` 同一个取法），是**权威值**
 - `sse=` 是最后一条事件里的 status，连着十几小时没事件时它会停住不动 —— 以平台为准
 - 平台自己说 `pending` 时**不会补催**：那说明服务端还挂着提问，本地 `挂起=0` 多半只是
   重连时重放没把提问请求带回来
@@ -207,17 +224,17 @@ nohup wbsbx keepalive work-01 > keepalive.log 2>&1 &
 服务器上跑（不需要宿主机装 node，借现成镜像即可）：
 
 ```bash
-docker run -d --name wbsbx-keepalive-01 --restart unless-stopped -u 1000:1000 \
-  -v /srv/wbsbx:/opt/wbsbx:ro -v /srv/wbsbx-data:/data \
-  -e WB_CLOUD_HOME=/data -e WBSBX_LOCAL=1 \
+docker run -d --name cowbird-keepalive-01 --restart unless-stopped -u 1000:1000 \
+  -v /srv/cowbird:/opt/cowbird:ro -v /srv/cowbird-data:/data \
+  -e COWBIRD_HOME=/data -e COWBIRD_LOCAL=1 \
   --entrypoint node <有 node 的镜像> \
-  /opt/wbsbx/bin/wbsbx.js keepalive <实例id> --nudge 300
+  /opt/cowbird/bin/cowbird.js keepalive <实例id> --nudge 300
 ```
 
-`/srv/wbsbx-data` 里只需要两样：`platform/workbuddy/device-token.json`（accessToken + refreshToken）和 `tokens/`。
+`/srv/cowbird-data` 里只需要两样：`platform/workbuddy/device-token.json`（accessToken + refreshToken）和 `tokens/`。
 从旧部署迁移时把这一个 token 文件拷过去即可 —— 别拷旧的 state.json（cookie 那条路已经删了）。
 
-配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
+配置默认值在 `cowbird.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
 凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
 
 ### 断线了怎么办
@@ -255,7 +272,7 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 | PUT | `/api/targets` | 改保活目标 |
 | GET | `/api/logs?limit=100` | 最近日志 |
 
-令牌在 daemon 首次启动时随机生成并写进 `wbsbx.json`（权限 600）。**监听非回环地址却没令牌时，daemon 直接拒绝启动** —— 免得把整份登录态挂在公网门口。
+令牌在 daemon 首次启动时随机生成并写进 `cowbird.json`（权限 600）。**监听非回环地址却没令牌时，daemon 直接拒绝启动** —— 免得把整份登录态挂在公网门口。
 
 ## 几个必须知道的坑
 
@@ -263,15 +280,15 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 
 **Set-Cookie 要按 name+path+domain 合并。** 服务端每次响应都会下发 `session=; Path=/console; Max-Age=0`，那是在删一条历史遗留的 `/console` 路径 cookie。只按 name 合并会把 `path=/` 那条 4001 字符的好 cookie 覆盖成空值，下一轮必 401。
 
-**`nproc` 会说谎。** 它读 CPU 亲和性（cpuset），不是 cgroup 配额。共享宿主的池子里 `nproc` 能看到 32，实际只给你 4 核的带宽。`wbsbx info` 特意把「配额 / 可见 / nproc」分三行列出来。
+**`nproc` 会说谎。** 它读 CPU 亲和性（cpuset），不是 cgroup 配额。共享宿主的池子里 `nproc` 能看到 32，实际只给你 4 核的带宽。`cowbird info` 特意把「配额 / 可见 / nproc」分三行列出来。
 
 **成功时没有 exitCode。** E2B 的 end 帧是 proto3 JSON，成功时 `exitCode` 字段被省略。见到 end 而没写退出码 ⇒ 就是 0。
 
-**登录态写盘前会留上一版。** 每次覆盖 `state.json` 都会把上一份存成 `state.json.last-good`。滚动刷新写坏或误清空时，`cp $WB_CLOUD_HOME/state.json.last-good $WB_CLOUD_HOME/state.json` 就能回到上一份可用凭据。
+**登录态写盘前会留上一版。** 每次覆盖 `state.json` 都会把上一份存成 `state.json.last-good`。滚动刷新写坏或误清空时，`cp $COWBIRD_HOME/state.json.last-good $COWBIRD_HOME/state.json` 就能回到上一份可用凭据。
 
 ## 安全
 
-- 凭据（cookie、UA、token）全部落本地 `$WB_CLOUD_HOME`，权限 600，不上传任何地方。
+- 凭据（cookie、UA、token）全部落本地 `$COWBIRD_HOME`，权限 600，不上传任何地方。
 - **本项目不是官方客户端**，见 [DISCLAIMER.md](DISCLAIMER.md)。
 - daemon 默认只听 `127.0.0.1`。跨机用请走 SSH 隧道或反代 + 令牌，别把 8787 直接暴露到公网。
 - `login` 是唯一会打开浏览器窗口的动作，登录完就关。
@@ -280,8 +297,8 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 ## 目录
 
 ```
-bin/wbsbx.js            CLI 入口与分发
-bin/wbsbx-daemon.js     守护进程入口
+bin/cowbird.js            CLI 入口与分发
+bin/cowbird-daemon.js     守护进程入口
 lib/session.js          登录态 → 请求（cookie jar + UA + Set-Cookie 合并）
 lib/creds.js            凭据门面：daemon 优先、本地兜底
 lib/cloud.js            控制面接口（/console/as/*）

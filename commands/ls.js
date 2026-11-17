@@ -1,4 +1,4 @@
-// wbsbx ls —— 列出实例（会话 = 一个沙箱）
+// cowbird ls —— 列出实例（会话 = 一个沙箱）
 const { parse } = require('../lib/args');
 const ui = require('../lib/ui');
 const registry = require('../lib/platform');
@@ -30,7 +30,7 @@ async function run(argv) {
     return 0;
   }
   if (!list.length) {
-    console.log(ui.c.dim(`没有实例。用 wbsbx create <名字> 开一个（平台：${p.displayName}）。`));
+    console.log(ui.c.dim(`没有实例。用 cowbird create <名字> 开一个（平台：${p.displayName}）。`));
     return 0;
   }
 
@@ -62,6 +62,6 @@ module.exports = {
     '',
     '说明:',
     '  「凭据剩余」一列只有平台提供该能力时才显示（例如 WorkBuddy 的 E2B token）。',
-    '  状态列显示平台自己的状态词，含义见 `wbsbx platform`。',
+    '  状态列显示平台自己的状态词，含义见 `cowbird platform`。',
   ],
 };

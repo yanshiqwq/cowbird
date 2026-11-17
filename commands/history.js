@@ -1,4 +1,4 @@
-// wbsbx history —— 导出实例的对话历史
+// cowbird history —— 导出实例的对话历史
 //
 // 各平台的历史来源完全不同：WorkBuddy 只能靠 ACP 的 session/load 重放（没有查询接口）、
 // 码道有分页接口（还是倒序）、Qoder 是事件溯源、MiniMax 有 message 接口。

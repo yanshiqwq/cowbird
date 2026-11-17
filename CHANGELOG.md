@@ -3,6 +3,27 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.8.0] - 2026-11-17
+
+**改名：`wbsbx` → `cowbird`。** 名字来自牛鹂 —— 一种自己不筑巢、把蛋下在别人巢里让别人养大的鸟。
+这个工具干的正是这件事：不买机器不开容器，直接借用各平台会话自带的沙箱 shell。
+
+### 变更
+
+| 项 | 旧 | 新 |
+|---|---|---|
+| 命令 | `wbsbx` | **`cowbird`**（`wbsbx` 保留为别名，打一行弃用提示） |
+| daemon | `wbsbx-daemon` | `cowbird-daemon` |
+| 环境变量 | `WB_CLOUD_HOME` / `WBSBX_*` | **`COWBIRD_HOME` / `COWBIRD_*`**（旧名继续认，提示一次） |
+| 数据目录 | `~/.wbsbx` | **`~/.cowbird`**（首次运行自动从旧目录**复制**，源目录保留） |
+| npm 包名 | `wbsbx` | `cow-bird`（`cowbird` 在 npm 已被占；bin 仍叫 `cowbird`） |
+
+- 数据目录迁移只在「新目录不存在且旧目录存在」时做一次，只拷不删 —— 出问题把 `COWBIRD_HOME`
+  指回 `~/.wbsbx` 就能退回。
+- README 重写了开场：牛鹂的解释 + 四平台能力表（执行通道 / 超时 / 沙箱寿命）。
+- DISCLAIMER 从「与 WorkBuddy/CodeBuddy 无关」扩到「与 WorkBuddy / CodeBuddy / 华为云 CodeArts /
+  Qoder / MiniMax 都无关」。
+
 ## [0.7.0] - 2026-11-17
 
 两条大改：**WorkBuddy 砍掉 cookie 模式（只留 accessToken）**，**MiniMax 的 `yy` 攻破并证明服务端不校验**。

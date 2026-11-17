@@ -1,4 +1,4 @@
-// wbsbx put / get —— 和实例之间搬文件（同样不经过 Agent）
+// cowbird put / get —— 和实例之间搬文件（同样不经过 Agent）
 //
 // 两条通道二选一：平台有独立文件通道（fs）就优先用它，否则退回 exec 通道
 // （各平台实现不同：E2B base64 分块 / MCP file_write / shell base64）。

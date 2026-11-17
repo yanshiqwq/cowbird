@@ -1,10 +1,11 @@
 {
-  "name": "wbsbx",
-  "version": "0.7.0",
-  "description": "WorkBuddy 云沙箱管理器：CLI 操作实例，daemon 负责保活与登录态续期",
+  "name": "cow-bird",
+  "version": "0.8.0",
+  "description": "把各大网页 agent 自带的沙箱 shell 包装成统一的云沙箱管理器（多平台驱动 + 免 LLM 直连执行 + 保活）",
   "bin": {
-    "wbsbx": "bin/wbsbx.js",
-    "wbsbx-daemon": "bin/wbsbx-daemon.js"
+    "cowbird": "bin/cowbird.js",
+    "cowbird-daemon": "bin/cowbird-daemon.js",
+    "wbsbx": "bin/wbsbx-alias.js"
   },
   "files": [
     "bin/",
@@ -20,21 +21,21 @@
     "node": ">=18"
   },
   "scripts": {
-    "start": "node bin/wbsbx.js",
-    "daemon": "node bin/wbsbx-daemon.js",
-    "ls": "node bin/wbsbx.js ls",
-    "doctor": "node bin/wbsbx.js doctor",
+    "start": "node bin/cowbird.js",
+    "daemon": "node bin/cowbird-daemon.js",
+    "ls": "node bin/cowbird.js ls",
+    "doctor": "node bin/cowbird.js doctor",
     "test": "node test/contract.js && node test/guard.js && node test/smoke.js",
     "test:net": "node test/halfopen.js"
   },
   "author": "yanshiqwq",
   "repository": {
     "type": "git",
-    "url": "https://github.com/yanshiqwq/wbsbx.git"
+    "url": "https://github.com/yanshiqwq/cowbird.git"
   },
-  "homepage": "https://github.com/yanshiqwq/wbsbx#readme",
+  "homepage": "https://github.com/yanshiqwq/cowbird#readme",
   "bugs": {
-    "url": "https://github.com/yanshiqwq/wbsbx/issues"
+    "url": "https://github.com/yanshiqwq/cowbird/issues"
   },
   "optionalDependencies": {
     "playwright-core": "^1.47.0"

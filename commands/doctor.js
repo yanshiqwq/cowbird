@@ -1,4 +1,4 @@
-// wbsbx doctor —— 一条命令看清这套东西现在还活着没有
+// cowbird doctor —— 一条命令看清这套东西现在还活着没有
 // 顺序按依赖链排：node → 数据目录 → 登录态 → 接口 → 实例/凭据 → daemon → 浏览器
 //
 // 浏览器在日常路径里用不到（纯 HTTP + cookie/UA 就够），只有 login 和可选的服务端续期需要，
@@ -52,7 +52,7 @@ async function checkDaemon() {
     add(n ? 'ok' : 'warn', 'daemon',
       `在线 · 保活 ${n} 个` + (n ? `（${last}）` : '（目标为空，等于没保活）') + ` · 已跑 ${Math.floor(st.uptimeSec / 60)} 分钟`);
   } catch {
-    add('warn', 'daemon', '没连上 —— 没人定期访问的话实例会被回收。起一个：wbsbx daemon start --detach');
+    add('warn', 'daemon', '没连上 —— 没人定期访问的话实例会被回收。起一个：cowbird daemon start --detach');
   }
 }
 

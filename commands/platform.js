@@ -1,4 +1,4 @@
-// wbsbx platform —— 看/切「平台驱动」
+// cowbird platform —— 看/切「平台驱动」
 //
 // 这条命令存在的意义：把一个平台能做什么、不能做什么直接摊开，
 // 免得 exec 之类的能力在缺能力时只能靠一句报错去猜。
@@ -42,33 +42,33 @@ async function run(argv) {
       x.ok ? String((x.capabilities || []).length) + ' 项能力' : ui.c.dim(String(x.error || '').slice(0, 40)),
     ]);
     console.log(ui.table(['', 'ID', '名字', '能力'], rows));
-    console.log(ui.c.dim(`\n当前：${cur}。切换：wbsbx platform use <id>`));
+    console.log(ui.c.dim(`\n当前：${cur}。切换：cowbird platform use <id>`));
     return 0;
   }
 
   if (sub === 'use') {
     const id = args._[1];
-    if (!id) throw new Error('用法: wbsbx platform use <id>');
+    if (!id) throw new Error('用法: cowbird platform use <id>');
     const p = registry.use(id);                 // 先验证能加载，再落盘
     cfg.writeConfig({ platform: p.id });
     console.log(ui.c.green('已切换到 ') + `${p.displayName}（${p.id}）`);
-    if (!p.has('exec')) console.log(ui.c.yellow('注意：该平台没有 exec 能力，wbsbx exec 会直接报不支持'));
+    if (!p.has('exec')) console.log(ui.c.yellow('注意：该平台没有 exec 能力，cowbird exec 会直接报不支持'));
     return 0;
   }
 
-  if (sub !== 'show' && sub !== 'info') throw new Error('用法: wbsbx platform [show|ls|use <id>]');
+  if (sub !== 'show' && sub !== 'info') throw new Error('用法: cowbird platform [show|ls|use <id>]');
 
   const p = registry.get();
   if (args.opts.json) {
     console.log(JSON.stringify({
       id: p.id, displayName: p.displayName, version: p.version,
       capabilities: p.capabilityList(), limits: p.limits, defaults: p.defaults,
-      source: process.env.WBSBX_PLATFORM_MODULE ? 'module' : 'builtin',
+      source: process.env.COWBIRD_PLATFORM_MODULE ? 'module' : 'builtin',
     }, null, 2));
     return 0;
   }
   console.log(ui.table(['项目', '值'], rowsFor(p), { sep: false }));
-  console.log(ui.c.dim(`\n全部平台：wbsbx platform ls`));
+  console.log(ui.c.dim(`\n全部平台：cowbird platform ls`));
   return 0;
 }
 
@@ -79,14 +79,14 @@ module.exports = {
     '子命令:',
     '  show          当前平台的能力与限制（默认）',
     '  ls            列出所有内置驱动与加载状态',
-    '  use <id>      切换平台（写进 wbsbx.json 的 platform）',
+    '  use <id>      切换平台（写进 cowbird.json 的 platform）',
     '',
     '选项:',
     '  --json        输出 JSON',
     '',
     '说明:',
-    '  平台由 wbsbx.json 的 "platform" 决定，可用 WBSBX_PLATFORM 覆盖；',
-    '  第三方驱动用 WBSBX_PLATFORM_MODULE=<路径|包名> 指过来，不需要改内核。',
+    '  平台由 cowbird.json 的 "platform" 决定，可用 COWBIRD_PLATFORM 覆盖；',
+    '  第三方驱动用 COWBIRD_PLATFORM_MODULE=<路径|包名> 指过来，不需要改内核。',
     '',
     '退出码:',
     '  0  正常',

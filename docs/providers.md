@@ -1,6 +1,6 @@
 # 加一个平台：写一个目录
 
-wbsbx 现在把「平台」关在 `lib/platform/` 里。**加一个平台 = 新建一个目录 + 实现契约**，内核（命令、daemon、配置、实例解析）一行都不用改。
+cowbird 现在把「平台」关在 `lib/platform/` 里。**加一个平台 = 新建一个目录 + 实现契约**，内核（命令、daemon、配置、实例解析）一行都不用改。
 
 现有四个驱动可以直接抄：
 
@@ -39,7 +39,7 @@ module.exports = defineProvider({
   displayName: '我的平台',
   version: '1.0.0',
   capabilities: [CAP.LIST, CAP.AGENT /* … */],
-  defaults: { model: 'xxx' },                       // 进 wbsbx.json 的 platforms.<id>
+  defaults: { model: 'xxx' },                       // 进 cowbird.json 的 platforms.<id>
   limits: { maxSyncMs: 60000, defaultSyncMs: 20000, maxBackground: true },
 
   transport: { request(ctx, req) },                 // 可选，但强烈建议单独一层
@@ -77,7 +77,7 @@ module.exports = defineProvider({
 没有执行通道就**别声明** `exec`。内核会：
 
 ```
-wbsbx exec …  →  本平台（X）没有执行通道。
+cowbird exec …  →  本平台（X）没有执行通道。
                  可用的命令：ls / info / prompt / history / watch / doctor
 ```
 
@@ -172,14 +172,14 @@ npm test                                # contract + guard + smoke
 
 ```bash
 # 内置目录：天然可用
-wbsbx platform ls
-wbsbx platform use myplatform
+cowbird platform ls
+cowbird platform use myplatform
 
 # 第三方驱动：不改内核，用环境变量指过去（路径/包名都行）
-WBSBX_PLATFORM_MODULE=/path/to/my-provider.js wbsbx ls
+COWBIRD_PLATFORM_MODULE=/path/to/my-provider.js cowbird ls
 ```
 
-`WBSBX_PLATFORM_MODULE` 加载的模块只要 `module.exports = defineProvider({...})`，形状与内置驱动完全一致。
+`COWBIRD_PLATFORM_MODULE` 加载的模块只要 `module.exports = defineProvider({...})`，形状与内置驱动完全一致。
 
 ---
 

@@ -1,4 +1,4 @@
-// wbsbx rm —— 删除 / 归档实例
+// cowbird rm —— 删除 / 归档实例
 // 默认是 dry-run：只打印"会删什么"，加 --yes 才真删（删错了容器里的东西就没了）
 const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
@@ -25,7 +25,7 @@ async function run(argv) {
     if (inst.status === 'working' || inst.status === 'running') {
       console.log(ui.c.red('  ⚠ 这个实例正在干活，删了会把正在跑的任务一起干掉'));
     }
-    console.log(ui.c.dim(`\n确认无误后重跑：wbsbx rm ${ref}${args.opts.archive ? ' --archive' : ''} --yes`));
+    console.log(ui.c.dim(`\n确认无误后重跑：cowbird rm ${ref}${args.opts.archive ? ' --archive' : ''} --yes`));
     return 0;
   }
 

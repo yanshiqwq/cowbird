@@ -8,11 +8,11 @@ const path = require('path');
 const assert = require('assert');
 
 // config 在 import 时就算 HOME，必须先设
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'wbsbx-contract-'));
-process.env.WB_CLOUD_HOME = TMP;
-process.env.WBSBX_LOCAL = '1';
-delete process.env.WBSBX_PLATFORM;
-delete process.env.WBSBX_PLATFORM_MODULE;
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cowbird-contract-'));
+process.env.COWBIRD_HOME = TMP;
+process.env.COWBIRD_LOCAL = '1';
+delete process.env.COWBIRD_PLATFORM;
+delete process.env.COWBIRD_PLATFORM_MODULE;
 
 // 不论怎么退出（含中途 process.exit），临时目录都不许留在 /tmp 里
 process.on('exit', () => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {} });

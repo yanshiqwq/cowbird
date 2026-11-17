@@ -32,17 +32,17 @@ WorkBuddy（`www.workbuddy.cn`）的云沙箱：一个会话 = 一个容器，�
 ## 登录（唯一需要用户操作的一步）
 
 ```bash
-wbsbx login                 # 打印一个链接，在任意设备（手机也行）打开授权
+cowbird login                 # 打印一个链接，在任意设备（手机也行）打开授权
 ```
 
 流程：`POST copilot.tencent.com/v2/plugin/auth/state?platform=VSCode` → `{state, authUrl}`
 → 打印 authUrl → 轮询 `GET /v2/plugin/auth/token?state=…`
 （未授权时 `code:11217 "login ing..."`）→ 拿到 `accessToken` / `refreshToken` / `expiresIn`
-→ 落盘 `~/.wbsbx/platform/workbuddy/device-token.json`（600）→ 顺手实测一次控制面并写日志。
+→ 落盘 `~/.cowbird/platform/workbuddy/device-token.json`（600）→ 顺手实测一次控制面并写日志。
 
 - **不需要浏览器**，服务器 / SSH 里也能登录（不依赖 playwright / Edge）。
 - accessToken 约 28 天，refreshToken 可续；daemon 的 renew 循环会定期续。
-- 换账号就是重新跑一次 `wbsbx login`。
+- 换账号就是重新跑一次 `cowbird login`。
 
 ---
 
@@ -79,6 +79,6 @@ node -e "require('./lib/platform').use('workbuddy')"
 
 ## 四、注意
 
-- token 等价于账号在**控制面 + 沙箱执行面**的全部权限，`~/.wbsbx/` 下那几个文件别外传。
+- token 等价于账号在**控制面 + 沙箱执行面**的全部权限，`~/.cowbird/` 下那几个文件别外传。
 - `exec` 是沙箱内 root 任意执行，但**不经过 LLM、不进对话轨迹**；平台侧仍按 API 调用计费/计量。
 - 与仓库 `DISCLAIMER.md` 口径一致：非官方用法，风险自负。

@@ -107,10 +107,10 @@ Qoder 是**云 agent 会话**平台（不是云 IDE）：会话跑在阿里云 A
 
 ### 4.2 存进驱动
 
-驱动自己不碰文件路径，登录态落在内核给的 `ctx.store`（`$WB_CLOUD_HOME/platform/qoder/auth.json`，0600）：
+驱动自己不碰文件路径，登录态落在内核给的 `ctx.store`（`$COWBIRD_HOME/platform/qoder/auth.json`，0600）：
 
 ```bash
-cd /path/to/wbsbx
+cd /path/to/cowbird
 export QODER_COOKIE='acw_tc=...; qoder_visitor_id=...; <session cookie>=...'
 
 node -e "
@@ -160,7 +160,7 @@ const sid = process.env.SID;
 "
 ```
 
-`exec.run` 的命令外面套了一层壳（stderr 先落临时文件、末尾打 `__WBSBX_CODE__<n>`），
+`exec.run` 的命令外面套了一层壳（stderr 先落临时文件、末尾打 `__COWBIRD_CODE__<n>`），
 所以 `out` / `err` / `code` 三段分得开。**`err` 是命令跑完才一起回来的，不是实时流**。
 
 后台任务：
@@ -207,7 +207,7 @@ node -e "
 const reg = require('./lib/platform');
 const p = reg.use('qoder'), ctx = reg.context(p);
 (async () => {
-  const inst = await p.instances.create(ctx, { name: 'wbsbx 试验' });   // model 默认 qfmodel（0.04x）
+  const inst = await p.instances.create(ctx, { name: 'cowbird 试验' });   // model 默认 qfmodel（0.04x）
   console.log(inst.id);
   console.log(await p.instances.rename(ctx, inst.id, '改个名'));        // via: patch | control_request
   console.log(await p.instances.remove(ctx, inst.id));                 // DELETE，204 也算成功
@@ -266,7 +266,7 @@ grant=<JWT>
 
 // 3) POST <url>/mcp
 {"jsonrpc":"2.0","id":1,"method":"initialize",
- "params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"wbsbx","version":"1.0.0"}}}
+ "params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"cowbird","version":"1.0.0"}}}
 {"jsonrpc":"2.0","method":"notifications/initialized"}
 {"jsonrpc":"2.0","id":3,"method":"tools/call",
  "params":{"name":"bash","arguments":{"command":"id","timeout":120,"on_timeout":"kill"}}}
@@ -356,7 +356,7 @@ node lib/platform/qoder/selftest.js     # 不联网、无凭据，最后打印 �
 2. **MCP `file_read` 返回带行号**（`1\tqoder fs test`），直接落盘会把文件写坏
    （实测把 "qoder fs test" 存成 "1\tqoder fs test"）。
    - `fs.read` 现在用 `stripLineNumbers()` 剥（**全行都匹配才剥**，有一行不匹配就原样返回）；
-   - `exec.get` 与 `wbsbx get` 一律走 `base64 -w0`，字节级无损；`file_read` 不再用于传输。
+   - `exec.get` 与 `cowbird get` 一律走 `base64 -w0`，字节级无损；`file_read` 不再用于传输。
 3. **`stop_reason` 可能是对象**（`{type:'end_turn'}`），`String()` 会吐 `[object Object]`。
    现在 `reasonOf()` 归一成字符串。
 

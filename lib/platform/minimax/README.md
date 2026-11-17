@@ -273,7 +273,7 @@ connecting → (可选的 sent) → streaming(SSE)
 ```js
 await p.agent.send(ctx, id, { text: 'hi', allowUnverified: true });   // ① 单次调用
 // ② 环境变量  MINIMAX_ALLOW_UNVERIFIED_SEND=1
-// ③ wbsbx.json: { "platforms": { "minimax": { "allowUnverifiedSend": true } } }
+// ③ cowbird.json: { "platforms": { "minimax": { "allowUnverifiedSend": true } } }
 // ④ store: settings.json → { "allowUnverifiedSend": true }
 ```
 
@@ -319,7 +319,7 @@ console.log(await p.auth.state(ctx)); // ok / tokenPreview / exp / realUserId / 
 ### 7.2 真机实跑输出（2026-11-17，同一个账号，纯 HTTP）
 
 ```console
-$ node bin/wbsbx.js --platform minimax ls
+$ node bin/cowbird.js --platform minimax ls
 ID               名字                状态     最近活动
 ───────────────  ──────────────────  ───────  ────────────────
 464000000000001  示例会话 A  idle     2026-11-17 00:55
@@ -329,7 +329,7 @@ ID               名字                状态     最近活动
 ```
 
 ```console
-$ node bin/wbsbx.js --platform minimax info 464000000000001
+$ node bin/cowbird.js --platform minimax info 464000000000001
 项目        值
 ID          464000000000001
 名字        示例会话 A
@@ -349,13 +349,13 @@ Agent       464087654089272
 ```
 
 ```console
-$ node bin/wbsbx.js --platform minimax history 464000000000001 --json
+$ node bin/cowbird.js --platform minimax history 464000000000001 --json
 {"platform":"minimax","id":"464000000000001","messages":20,"lines":10,"truncated":false,
  "raw":"…/history-464000000000001.jsonl","txt":"…/history-464000000000001.txt"}
 ```
 
 ```console
-$ node bin/wbsbx.js --platform minimax doctor
+$ node bin/cowbird.js --platform minimax doctor
 ✓  登录态               token eyJhbGciOi…b5HI（来源 store，到期 2026-12-27T02:56:53.000Z）
 ✓  yy                   自算（…md5(enc(path?query) + "_" + body + md5(整秒毫秒) + "ooui")，与浏览器抓包逐字节一致）。
                          实测服务端**根本不校验** yy（整个删掉也 200），所以它不是门禁
@@ -401,7 +401,7 @@ for await (const ev of p.agent.stream(ctx, inst.id)) { if (ev.kind === 'done') b
 
 ### 7.5 store 里会留下什么
 
-`<WB_CLOUD_HOME>/platform/minimax/`（`registry.context()` 给的目录，权限 0600）：
+`<COWBIRD_HOME>/platform/minimax/`（`registry.context()` 给的目录，权限 0600）：
 
 | 文件 | 内容 |
 |---|---|

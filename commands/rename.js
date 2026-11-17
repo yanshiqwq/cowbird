@@ -1,4 +1,4 @@
-// wbsbx rename —— 改实例名（会话标题）
+// cowbird rename —— 改实例名（会话标题）
 const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
 const registry = require('../lib/platform');

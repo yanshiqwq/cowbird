@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// wbsbx —— WorkBuddy 云沙箱管理器（客户端）
+// cowbird —— 把各大网页 agent 自带的沙箱 shell 包装成统一的云沙箱管理器（客户端）
 //
 // 职责边界：只管「对实例做事」——列、建、删、执行、收发文件、看历史、发消息。
-// 「让实例活着 / 让登录态不过期」是 daemon 的活，见 wbsbx daemon。
+// 「让实例活着 / 让登录态不过期」是 daemon 的活，见 cowbird daemon。
 // 两者共享一份凭据目录，但 daemon 不在时 CLI 照样能用（走本地缓存，只是凭据会慢慢变旧）。
 const ui = require('../lib/ui');
 const pkg = require('../package.json');
@@ -32,20 +32,20 @@ for (const [name, def] of Object.entries(COMMANDS)) {
 }
 
 // 全局开关：只从**命令名之前**摘取。
-// 这一点很关键 —— 原先把整条 argv 都扫一遍，`wbsbx exec 01 curl --token x` 里的 --token
+// 这一点很关键 —— 原先把整条 argv 都扫一遍，`cowbird exec 01 curl --token x` 里的 --token
 // 会被当成全局开关吃掉。跟 docker/gh 一致：全局开关写在命令前。
 function extractGlobals(argv) {
   const out = [];
   let i = 0;
   for (; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--local') { process.env.WBSBX_LOCAL = '1'; continue; }
-    if (a === '--platform') { process.env.WBSBX_PLATFORM = argv[++i]; continue; }
-    if (a.startsWith('--platform=')) { process.env.WBSBX_PLATFORM = a.slice(11); continue; }
-    if (a === '--remote') { process.env.WBSBX_DAEMON_URL = argv[++i]; continue; }
-    if (a.startsWith('--remote=')) { process.env.WBSBX_DAEMON_URL = a.slice(9); continue; }
-    if (a.startsWith('--token=')) { process.env.WBSBX_DAEMON_TOKEN = a.slice(8); continue; }
-    if (a === '--token') { process.env.WBSBX_DAEMON_TOKEN = argv[++i]; continue; }
+    if (a === '--local') { process.env.COWBIRD_LOCAL = '1'; continue; }
+    if (a === '--platform') { process.env.COWBIRD_PLATFORM = argv[++i]; continue; }
+    if (a.startsWith('--platform=')) { process.env.COWBIRD_PLATFORM = a.slice(11); continue; }
+    if (a === '--remote') { process.env.COWBIRD_DAEMON_URL = argv[++i]; continue; }
+    if (a.startsWith('--remote=')) { process.env.COWBIRD_DAEMON_URL = a.slice(9); continue; }
+    if (a.startsWith('--token=')) { process.env.COWBIRD_DAEMON_TOKEN = a.slice(8); continue; }
+    if (a === '--token') { process.env.COWBIRD_DAEMON_TOKEN = argv[++i]; continue; }
     out.push(a);
     break;                       // 遇到命令名，后面的原样保留
   }
@@ -72,8 +72,8 @@ function help() {
     ['daemon', '常驻进程'],
     ['platform', '平台驱动'],
   ];
-  console.log(ui.c.bold(`wbsbx ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台）'));
-  console.log('\n' + ui.c.bold('用法') + ':  wbsbx <命令> [选项] [参数]');
+  console.log(ui.c.bold(`cowbird ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台）'));
+  console.log('\n' + ui.c.bold('用法') + ':  cowbird <命令> [选项] [参数]');
   console.log('\n' + ui.table(['命令', '说明'], cmdRows));
 
   console.log(`
@@ -83,22 +83,22 @@ ${ui.c.bold('实例引用方式：')}
   3. 短序号（01）
 
 ${ui.c.bold('全局开关')}
-  写在命令之前，例如 wbsbx --local ls
+  写在命令之前，例如 cowbird --local ls
   --local                 使用本地凭据
   --platform <id>         切换平台驱动
   --remote <地址>         使用远程 daemon
   --token <令牌>          配合 --remote
 
 ${ui.c.bold('环境变量')}
-  WB_CLOUD_HOME           数据目录（默认 ~/.wbsbx）
-  WBSBX_PLATFORM          默认平台
-  WBSBX_PLATFORM_MODULE   第三方驱动
-  WBSBX_DAEMON_URL        等同于 --remote
-  WBSBX_DAEMON_TOKEN      等同于 --token
-  WBSBX_PW_MODULE         playwright-core 的位置
-  WBSBX_BROWSER           chromium/edge 可执行文件路径
+  COWBIRD_HOME           数据目录（默认 ~/.cowbird）
+  COWBIRD_PLATFORM          默认平台
+  COWBIRD_PLATFORM_MODULE   第三方驱动
+  COWBIRD_DAEMON_URL        等同于 --remote
+  COWBIRD_DAEMON_TOKEN      等同于 --token
+  COWBIRD_PW_MODULE         playwright-core 的位置
+  COWBIRD_BROWSER           chromium/edge 可执行文件路径
 `);
-  console.log(ui.c.dim('运行 `wbsbx <命令> --help` 查看该命令的选项与退出码'));
+  console.log(ui.c.dim('运行 `cowbird <命令> --help` 查看该命令的选项与退出码'));
   return 0;
 }
 
@@ -112,7 +112,7 @@ async function main() {
 
   const name = ALIAS[argv[0]];
   if (!name) {
-    console.error(ui.c.red(`未知命令：${argv[0]}`) + ui.c.dim('（运行 wbsbx --help 看可用命令）'));
+    console.error(ui.c.red(`未知命令：${argv[0]}`) + ui.c.dim('（运行 cowbird --help 看可用命令）'));
     return 2;
   }
   const def = COMMANDS[name];
@@ -123,14 +123,14 @@ async function main() {
   const hi = rest.findIndex((a) => a === '--help' || a === '-h');
   if (hi >= 0) {
     // 对 exec/prompt 这类「实例之后全是命令」的子命令，只有写在实例之前的 --help 才算要看帮助；
-    // 否则 `wbsbx exec 01 ls -h` 会被误当成"看帮助"，而用户其实想让远端跑 ls -h。
+    // 否则 `cowbird exec 01 ls -h` 会被误当成"看帮助"，而用户其实想让远端跑 ls -h。
     let show = true;
     if (mod.stopAfter) {
       const firstPos = rest.findIndex((a) => !a.startsWith('-'));
       show = firstPos === -1 || hi < firstPos;
     }
     if (show) {
-      console.log(`用法: wbsbx ${mod.usage}`);
+      console.log(`用法: cowbird ${mod.usage}`);
       if (Array.isArray(mod.help) && mod.help.length) console.log('\n' + mod.help.join('\n'));
       return 0;
     }
@@ -142,7 +142,7 @@ main()
   .then((code) => process.exit(code || 0))
   .catch((e) => {
     console.error(ui.c.red('出错：') + String((e && e.message) || e).replace(/\n/g, '\n  '));
-    if (process.env.WBSBX_DEBUG) console.error(e.stack);
+    if (process.env.COWBIRD_DEBUG) console.error(e.stack);
     // 能力缺失（例如平台没有 exec）用 2 与"执行失败=1"区分开
     process.exit(e && e.code === 'E_CAPABILITY' ? 2 : 1);
   });

@@ -1,4 +1,4 @@
-// wbsbx login —— 登录（唯一可能用到浏览器的命令）
+// cowbird login —— 登录（唯一可能用到浏览器的命令）
 //
 // 两种登录形态，由驱动决定：
 //   ① 打印链接授权（默认，WorkBuddy）：在微信里打开链接完成授权，不需要浏览器。
@@ -68,7 +68,7 @@ async function deviceLogin(p, ctx, opts) {
       return 1;
     }
     if (Date.now() - started > timeoutMs) {
-      console.log(ui.c.yellow('\n登录已超时，请重新执行 wbsbx login --print-only'));
+      console.log(ui.c.yellow('\n登录已超时，请重新执行 cowbird login --print-only'));
       return 1;
     }
     if (tick % 15 === 0) log(`仍在等待授权…（${Math.round((Date.now() - started) / 1000)}s）`);

@@ -1,8 +1,8 @@
-// wbsbx exec —— 在实例里直接跑命令（经平台的执行通道，不经过 Agent）
+// cowbird exec —— 在实例里直接跑命令（经平台的执行通道，不经过 Agent）
 //
 // 参数规则跟 ssh / docker exec 一致：**第一个位置参数之后的全部内容都是命令**。
-// 所以 `wbsbx exec 01 ls -la /etc` 能直接用，不用给整条命令加引号。
-// 代价是 exec 自己的选项要写在实例之前：`wbsbx exec --timeout 30 01 "sleep 60"`。
+// 所以 `cowbird exec 01 ls -la /etc` 能直接用，不用给整条命令加引号。
+// 代价是 exec 自己的选项要写在实例之前：`cowbird exec --timeout 30 01 "sleep 60"`。
 //
 // 「怎么跑」不在这里决定：同步 / 转后台 / 直接拒绝，交给 lib/platform/exec.js 按
 // provider 声明的 limits 处理。这样 30s 硬顶的平台和 600s 的平台能共用一条命令。
@@ -20,7 +20,7 @@ const USAGE = 'exec [--timeout <秒>] [--background] [--json] <实例> <命令..
 function noExecHint(p) {
   return `本平台（${p.displayName}）没有执行通道。\n` +
     `  可用的命令：ls / info / prompt / history / watch / doctor\n` +
-    `  换一个支持 exec 的平台：wbsbx platform ls`;
+    `  换一个支持 exec 的平台：cowbird platform ls`;
 }
 
 async function run(argv) {
@@ -47,7 +47,7 @@ async function run(argv) {
   if (args.opts.file) cmd = fs.readFileSync(args.opts.file, 'utf8');
   else if (legacyFile) cmd = fs.readFileSync(rest[1], 'utf8');
   else cmd = rest.join(' ');
-  if (!cmd) throw new Error('用法: wbsbx ' + USAGE);
+  if (!cmd) throw new Error('用法: cowbird ' + USAGE);
 
   const ctx = registry.context(p);
   ctx.log = (m) => log(m);

@@ -24,8 +24,8 @@ lib/          ← 纯能力，不认识「谁在调用」
   creds.js      ★ 凭据门面：daemon 优先、本地兜底
   api.js        daemon 的 HTTP 客户端
 
-bin/wbsbx.js        ← 客户端：解析命令、调 lib、打印
-bin/wbsbx-daemon.js ← 守护：调度循环 + 起 HTTP 服务
+bin/cowbird.js        ← 客户端：解析命令、调 lib、打印
+bin/cowbird-daemon.js ← 守护：调度循环 + 起 HTTP 服务
 lib/daemon/         ← 只被 daemon 用
   scheduler.js   三条循环的编排与状态
   heal.js        保活一轮
@@ -52,7 +52,7 @@ getToken(id)
 
 - **daemon 只读不写**：CLI 请求过程中滚动出来的 `Set-Cookie` 只写本地文件。两边各维护一份副本，谁也别覆盖谁。两份 cookie 用同一个 UA，都能鉴权。
 - **daemon 不代理业务请求**。`exec` 的结果不经过 daemon 转发，CLI 拿到凭据后自己直连 E2B。这样长命令、大文件传输不会在 daemon 那里排队，daemon 也不需要懂 protobuf 帧。
-- **daemon 自己永远是 `local` 模式**（启动时设 `WBSBX_LOCAL=1`）。否则它会通过 `creds` 请求到自己身上，形成回环。
+- **daemon 自己永远是 `local` 模式**（启动时设 `COWBIRD_LOCAL=1`）。否则它会通过 `creds` 请求到自己身上，形成回环。
 
 ## 三条生命周期，三种维持手段
 
@@ -96,18 +96,18 @@ getToken(id)
 
 三条约束：
 
-1. **exec 是能力位**，不是命令 —— 平台没有执行通道就不声明，`wbsbx exec` 会报"不支持"并以退出码 2 结束；
+1. **exec 是能力位**，不是命令 —— 平台没有执行通道就不声明，`cowbird exec` 会报"不支持"并以退出码 2 结束；
 2. **同步上限由 provider 的 `limits` 决定** —— 内核只做「同步 / 后台 / 拒绝」三选一，不写死 30s 或 600s；
 3. **网络与签名全归 provider 的 `transport`** —— 内核里不出现 `fetch`，cookie/UA 绑定/CSRF/签名/轮换都在驱动内部。
 
 当前内置驱动：`workbuddy`（E2B 数据面）、`codearts`（内核 shell）、`qoder`（沙箱 MCP）、`minimax`（无执行通道）。
-第三方驱动可用 `WBSBX_PLATFORM_MODULE=<路径|包名>` 挂进来，不需要改内核。
+第三方驱动可用 `COWBIRD_PLATFORM_MODULE=<路径|包名>` 挂进来，不需要改内核。
 
 `test/guard.js` 是一道棘轮：内核里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。
 
 ## 扩展点
 
-**加一个命令**：在 `commands/` 新建文件，导出 `{ run, usage }`，在 `bin/wbsbx.js` 的 `COMMANDS` 里登记。命令只管参数解析和输出，凭据从 `cloud.getSession()` / `session.*` 拿，别自己读文件。
+**加一个命令**：在 `commands/` 新建文件，导出 `{ run, usage }`，在 `bin/cowbird.js` 的 `COMMANDS` 里登记。命令只管参数解析和输出，凭据从 `cloud.getSession()` / `session.*` 拿，别自己读文件。
 
 **加一条后台循环**：在 `lib/daemon/scheduler.js` 里加一个方法 + 在 `start()` 里挂 `_loop(name, intervalFn, runFn, initialDelay)`。注意两件事：`busy[name]` 防重入，每轮结束 `_save()` 落状态。
 

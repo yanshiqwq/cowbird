@@ -1,4 +1,4 @@
-// wbsbx daemon —— 管常驻进程：起停、看状态、看日志、改保活目标、连远程 daemon
+// cowbird daemon —— 管常驻进程：起停、看状态、看日志、改保活目标、连远程 daemon
 //
 // 这一层只做「进程与配置」，真正的循环逻辑在 lib/daemon/scheduler.js。
 const fs = require('fs');
@@ -10,7 +10,7 @@ const ui = require('../lib/ui');
 const api = require('../lib/api');
 const resolve = require('../lib/resolve');
 
-const DAEMON_JS = path.join(__dirname, '..', 'bin', 'wbsbx-daemon.js');
+const DAEMON_JS = path.join(__dirname, '..', 'bin', 'cowbird-daemon.js');
 
 function runningPid() {
   try {
@@ -80,7 +80,7 @@ async function status(argv) {
   }
   if (!st) {
     console.log(ui.c.yellow('daemon 没在跑') + ui.c.dim(`（${err && err.message}）`));
-    console.log(ui.c.dim('\n起一个：wbsbx daemon start --detach'));
+    console.log(ui.c.dim('\n起一个：cowbird daemon start --detach'));
     return 1;
   }
 
@@ -155,7 +155,7 @@ async function targets(argv) {
   if (!action || action === 'ls' || action === 'list') {
     const list = await current();
     if (args.opts.json) { console.log(JSON.stringify(list, null, 2)); return 0; }
-    if (!list.length) { console.log(ui.c.dim('没有保活目标。加一个：wbsbx daemon targets add 01')); return 0; }
+    if (!list.length) { console.log(ui.c.dim('没有保活目标。加一个：cowbird daemon targets add 01')); return 0; }
     console.log(ui.table(['ID', '名字'], list.map((t) => [t.id, t.name || '-'])));
     return 0;
   }
@@ -163,14 +163,14 @@ async function targets(argv) {
   if (action === 'add' || action === 'rm' || action === 'remove') {
     let list = await current();
     if (action === 'add') {
-      if (!rest.length) throw new Error('用法: wbsbx daemon targets add <实例...>');
+      if (!rest.length) throw new Error('用法: cowbird daemon targets add <实例...>');
       for (const ref of rest) {
         const inst = await resolve.resolve(ref);
         if (list.some((t) => String(t.id) === inst.id)) continue;
         list.push({ id: inst.id, name: inst.name || '' });
       }
     } else {
-      if (!rest.length) throw new Error('用法: wbsbx daemon targets rm <实例...>');
+      if (!rest.length) throw new Error('用法: cowbird daemon targets rm <实例...>');
       const ids = [];
       for (const ref of rest) {
         try { ids.push((await resolve.resolve(ref)).id); } catch { if (/^\d+$/.test(ref)) ids.push(ref); }
@@ -188,7 +188,7 @@ async function targets(argv) {
     return 0;
   }
 
-  throw new Error('用法: wbsbx daemon targets [ls|add|rm] [实例...]');
+  throw new Error('用法: cowbird daemon targets [ls|add|rm] [实例...]');
 }
 
 // ---------- pair ----------
@@ -224,7 +224,7 @@ function install(argv) {
 
   if (process.platform === 'linux') {
     const unit = `[Unit]
-Description=wbsbx daemon (WorkBuddy sandbox keep-alive)
+Description=cowbird daemon (WorkBuddy sandbox keep-alive)
 After=network-online.target
 Wants=network-online.target
 
@@ -233,7 +233,7 @@ Type=simple
 ExecStart=${node} ${script}
 Restart=always
 RestartSec=10
-Environment=WB_CLOUD_HOME=${cfg.HOME}
+Environment=COWBIRD_HOME=${cfg.HOME}
 # 需要用浏览器续期时把 HOME 设成有凭据的用户
 # User=youruser
 
@@ -241,27 +241,27 @@ Environment=WB_CLOUD_HOME=${cfg.HOME}
 WantedBy=multi-user.target
 `;
     if (args.opts.write) {
-      const p = '/etc/systemd/system/wbsbx-daemon.service';
+      const p = '/etc/systemd/system/cowbird-daemon.service';
       try { fs.writeFileSync(p, unit); console.log(ui.c.green('已写入 ') + p); }
       catch (e) { console.log(ui.c.red('写不了 ' + p + '（要 root）：' + e.message)); return 1; }
-      console.log(ui.c.dim('sudo systemctl daemon-reload && sudo systemctl enable --now wbsbx-daemon'));
+      console.log(ui.c.dim('sudo systemctl daemon-reload && sudo systemctl enable --now cowbird-daemon'));
       return 0;
     }
-    console.log(ui.c.bold('把下面存成 /etc/systemd/system/wbsbx-daemon.service：\n'));
+    console.log(ui.c.bold('把下面存成 /etc/systemd/system/cowbird-daemon.service：\n'));
     console.log(unit);
-    console.log(ui.c.dim('然后：sudo systemctl daemon-reload && sudo systemctl enable --now wbsbx-daemon'));
+    console.log(ui.c.dim('然后：sudo systemctl daemon-reload && sudo systemctl enable --now cowbird-daemon'));
     return 0;
   }
 
   if (process.platform === 'win32') {
-    const cmd = `schtasks /Create /TN "wbsbx-daemon" /SC ONLOGON /RL LIMITED /TR "\\"${node}\\" \\"${script}\\"" /F`;
+    const cmd = `schtasks /Create /TN "cowbird-daemon" /SC ONLOGON /RL LIMITED /TR "\\"${node}\\" \\"${script}\\"" /F`;
     console.log(ui.c.bold('用计划任务在登录时拉起：\n'));
     console.log('  ' + cmd);
-    console.log(ui.c.dim('\n也可以直接用「启动」文件夹放一个快捷方式；或者干脆 wbsbx daemon start --detach 手动起。'));
+    console.log(ui.c.dim('\n也可以直接用「启动」文件夹放一个快捷方式；或者干脆 cowbird daemon start --detach 手动起。'));
     return 0;
   }
 
-  console.log(ui.c.dim('这台平台没有内置的服务安装方式，用 docker 或前台跑：wbsbx-daemon'));
+  console.log(ui.c.dim('这台平台没有内置的服务安装方式，用 docker 或前台跑：cowbird-daemon'));
   return 0;
 }
 
@@ -281,7 +281,7 @@ async function run(argv) {
     case 'install': return install(rest);
     case undefined:
     case 'help':
-      console.log(`用法: wbsbx daemon <子命令>
+      console.log(`用法: cowbird daemon <子命令>
 
   start [--detach]        启动（--detach 后台跑）
   stop                    停止
@@ -316,6 +316,6 @@ module.exports = {
     '',
     '说明:',
     '  daemon 只管三件事：heal 保活、refresh 刷 token、renew 续登录态。',
-    '  keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `wbsbx keepalive --help`。',
+    '  keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `cowbird keepalive --help`。',
   ],
 };

@@ -12,9 +12,9 @@ const path = require('path');
 const assert = require('assert');
 
 // ⚠ 必须在 require 任何读配置的模块之前设好：config.js 在 import 时就把 HOME 算出来了。
-const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'wbsbx-smoke-'));
-process.env.WB_CLOUD_HOME = TMP;
-process.env.WBSBX_LOCAL = '1';        // 不探测 daemon，避免 4 秒网络超时
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'cowbird-smoke-'));
+process.env.COWBIRD_HOME = TMP;
+process.env.COWBIRD_LOCAL = '1';        // 不探测 daemon，避免 4 秒网络超时
 
 const args = require('../lib/args');
 const ui = require('../lib/ui');
@@ -122,9 +122,18 @@ function frame(obj) {
   });
 
   console.log('\n配置');
-  ok('WB_CLOUD_HOME 覆盖数据目录', () => {
+  ok('COWBIRD_HOME 覆盖数据目录', () => {
     assert.strictEqual(cfg.HOME, TMP);
-    assert.strictEqual(cfg.PATHS.state, path.join(TMP, 'state.json'));
+    assert.strictEqual(cfg.PATHS.config, path.join(TMP, 'cowbird.json'));
+    assert.strictEqual(cfg.PATHS.daemonState, path.join(TMP, 'daemon-state.json'));
+  });
+  ok('老环境变量名有兜底（WB_CLOUD_HOME → COWBIRD_HOME）', () => {
+    const before = process.env.COWBIRD_HOME;
+    delete process.env.COWBIRD_HOME;
+    process.env.WB_CLOUD_HOME = '/tmp/legacy-home';
+    assert.strictEqual(cfg.envVal('COWBIRD_HOME'), '/tmp/legacy-home');
+    delete process.env.WB_CLOUD_HOME;
+    if (before !== undefined) process.env.COWBIRD_HOME = before;
   });
 
   console.log('\nkeepalive 策略');
@@ -296,7 +305,7 @@ function frame(obj) {
   });
 
   await okAsync('script 模式：把文件内容当命令送进去', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wbsbx-heal-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cowbird-heal-'));
     fs.writeFileSync(path.join(dir, 'h.sh'), '#!/bin/sh\necho "ACTION: 修好了"\necho "STATE: ok"\n');
     const deps = mkDeps({ exec: async (c, cmd, o) => { deps.calls.push({ cmd, o }); return { out: 'ACTION: 修好了\nSTATE: ok\n', err: '', code: 0 }; } });
     const r = await runHeal({ targets: [{ id: '1', script: 'h.sh' }], scriptsDir: dir }, () => {}, deps);
