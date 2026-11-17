@@ -52,24 +52,22 @@ async function listAll(args) {
   }
 
   const multiPlatform = new Set(rows.map((r) => r.platform)).size > 1;
-  const head = ['', '渠道', multiPlatform ? '平台' : null, '身份', '凭据剩余', '登录时间'].filter(Boolean);
+  const head = ['', '渠道', '身份', '凭据剩余', '登录时间'];
   const body = rows.map((r) => {
     if (r.empty) {
-      const row = [' ', ui.c.dim(r.key), multiPlatform ? ui.c.dim(r.displayName) : null, ui.c.dim('未登录'), ui.c.dim('-'), ui.c.dim('-')].filter((x) => x !== null);
-      return row;
+      return [' ', ui.c.dim(r.key), ui.c.dim('未登录'), ui.c.dim('-'), ui.c.dim('-')];
     }
-    const row = [
+    return [
       r.default ? ui.c.green('*') : ' ',
       r.key,
-      multiPlatform ? r.displayName : null,
       r.who || ui.c.dim('(未记录)'),
       r.error ? ui.c.red('读不到') : r.ttlDays == null ? ui.c.dim('未知') : ui.til((Date.now() + r.ttlDays * 86400e3) / 1000),
       r.savedAt ? String(r.savedAt).replace('T', ' ').slice(0, 16) : ui.c.dim('-'),
     ];
-    return row.filter((x) => x !== null);
   });
   console.log(ui.table(head, body));
-  console.log(ui.c.dim(`\n共 ${rows.filter((r) => !r.empty).length} 个已登录渠道（* = 默认）。`));
+  console.log(ui.c.dim(`\n共 ${rows.filter((r) => !r.empty).length} 个已登录渠道（* = 默认）` +
+    (multiPlatform ? `，跨 ${new Set(rows.filter((r) => !r.empty).map((r) => r.platform)).size} 个平台` : '')));
   console.log(ui.c.dim('加账号：cowbird login --as <名字>　切换默认：cowbird account use <渠道>'));
   return 0;
 }
