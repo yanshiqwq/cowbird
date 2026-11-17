@@ -242,6 +242,30 @@ cowbird --platform codearts login --oauth --callback '<浏览器被打回的那�
    打一次控制面）。**未验证**：需要在有活 cookie 时观察 12 小时。
 2. **持久浏览器 profile / 读本机浏览器 cookie**：一次性登录，之后自动捞 —— 仍依赖浏览器。
 
+### 4.1e 官方客户端怎么说：它有 OAuth，但它**不做云沙箱**
+
+把官方两件套的逆向资料翻了一遍（`codearts-agent` IDE 与 `codearts-cli`，第三方 teardown）：
+
+| 客户端 | 鉴权 | 跑在哪 | 碰云沙箱吗 |
+|---|---|---|---|
+| 码道 IDE（`agentkernelServer` 内嵌） | OAuth2 + PKCE + DPoP → STS → `snap-access` | **本地**：agentkernel 是它自己带的一个进程 | 不碰 |
+| `codearts-cli` | 同上 | **本地**：`agentkernel` 是个 Bun ELF | 不碰 |
+| Web 控制台（`devcloud/chat`） | 会话 cookie（+ `cftk` CSRF） | **云端沙箱** | 就是它 |
+
+关键推论：**`cloudagent sessions` + `9880/9800` 预览 shell 是 Web 控制台独有的能力**，
+桌面/CLI 客户端在本地跑 agent，用不着云沙箱 —— 所以“官方客户端的免密方式”对我们这面**不适用**，
+不是我们没找到，而是它根本没有这条 API（与 4.1c 在 snap-access 上扫不到 sandbox 路由互相印证）。
+
+第三方实现也一致：Android 版 [CodeArtsGateway](https://github.com/iQOO110/CodeArtsGateway)
+每次请求都要显式传 `devclouddevuibjtcftk` cookie（README 明说凭据由用户在 App 内填），
+且它踩到过与我们相同的边界 —— **同一账号最多 3 个活跃会话**，
+满了报 `500 并发会话数已达上限(3个)`。后者已进 `transport.apiError`：识别成
+`E_SESSION_LIMIT`（不可重试）并提示先 `cowbird ls --all` 腾地方。
+
+顺带一条与本项目无关但值得知道的：那份 teardown 指出官方 IDE/CLI 的“云端索引”会把
+工作区打包（**白名单里含 `.env*`**）上传到 OBS，且上传链路 `rejectUnauthorized:false`
+（`NODE_TLS_REJECT_UNAUTHORIZED=0`）。用它之前先看清那个面板的开关。
+
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
