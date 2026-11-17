@@ -137,12 +137,40 @@ async function run(argv) {
 
   checkNode();
   checkHome();
-  const st = await checkLoginState();
-  await checkApi(allowNet, st);
-  await checkSessions(allowNet, st);
-  checkHealTargets();
+
+  // ---- 平台与驱动 ----
+  const registry = require('../lib/platform');
+  let provider = null;
+  try {
+    provider = registry.get();
+    const caps = provider.capabilityList();
+    add('ok', '平台', `${provider.displayName}（${provider.id}）· ${caps.length} 项能力` +
+      (provider.has('exec') ? ` · 同步上限 ${Math.round(provider.limits.maxSyncMs / 1000)}s` : ' · 无执行通道'));
+  } catch (e) {
+    add('bad', '平台', String(e.message).slice(0, 160));
+  }
+
+  // 驱动自己的体检项
+  if (provider && provider.doctor && typeof provider.doctor.checks === 'function') {
+    try {
+      const ctx = registry.context(provider);
+      for (const c of await provider.doctor.checks(ctx, { net: allowNet })) add(c.level || 'info', c.name || '驱动', c.detail || '');
+    } catch (e) {
+      add('warn', '驱动体检', String(e.message).slice(0, 140));
+    }
+  }
+
+  // 历史包袱：这几项目前仍是 WorkBuddy 专属实现（cookie/接口/实例缓存/保活目标）。
+  // 等各驱动的 doctor.checks 补齐后整段删除。
+  const legacy = provider && provider.id === 'workbuddy';
+  const st = legacy ? await checkLoginState() : null;
+  if (legacy) {
+    await checkApi(allowNet, st);
+    await checkSessions(allowNet, st);
+    checkHealTargets();
+  }
   await checkDaemon();
-  checkBrowser();
+  if (legacy) checkBrowser();
 
   if (args.opts.json) {
     console.log(JSON.stringify(rows.map(([l, n, d]) => ({ level: l, name: n, detail: d })), null, 2));

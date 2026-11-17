@@ -24,6 +24,7 @@ const COMMANDS = {
   cookie: { mod: '../commands/cookie', alias: [] },
   doctor: { mod: '../commands/doctor', alias: ['diag'] },
   daemon: { mod: '../commands/daemon', alias: ['d', 'svc'] },
+  platform: { mod: '../commands/platform', alias: ['providers', 'drivers'] },
 };
 
 const ALIAS = {};
@@ -40,6 +41,8 @@ function extractGlobals(argv) {
   for (; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--local') { process.env.WBSBX_LOCAL = '1'; continue; }
+    if (a === '--platform') { process.env.WBSBX_PLATFORM = argv[++i]; continue; }
+    if (a.startsWith('--platform=')) { process.env.WBSBX_PLATFORM = a.slice(11); continue; }
     if (a === '--remote') { process.env.WBSBX_DAEMON_URL = argv[++i]; continue; }
     if (a.startsWith('--remote=')) { process.env.WBSBX_DAEMON_URL = a.slice(9); continue; }
     if (a.startsWith('--token=')) { process.env.WBSBX_DAEMON_TOKEN = a.slice(8); continue; }
@@ -69,8 +72,9 @@ function help() {
     ['cookie', '查看/导出/实测登录态'],
     ['doctor', '体检：登录态、接口、实例、凭据、daemon'],
     ['daemon', '常驻进程：保活、刷 token、续登录态'],
+    ['platform', '看/切平台驱动：能力、执行通道、同步上限'],
   ];
-  console.log(ui.c.bold(`wbsbx ${pkg.version}`) + ui.c.dim(' · WorkBuddy 云沙箱管理器'));
+  console.log(ui.c.bold(`wbsbx ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台）'));
   console.log('\n' + ui.c.bold('用法') + ':  wbsbx <命令> [选项] [参数]');
   console.log('\n' + ui.table(['命令', '说明'], cmdRows));
 
@@ -88,11 +92,14 @@ ${ui.c.bold('常用')}
 ${ui.c.bold('全局开关')}
   写在命令之前，例如 wbsbx --local ls
   --local                 这一次不走 daemon，直接用本地凭据
+  --platform <id>         这一次换一个平台驱动（wbsbx platform ls 看有哪些）
   --remote <地址>         这一次改用另一台机器上的 daemon
   --token <令牌>          配合 --remote
 
 ${ui.c.bold('环境变量')}
   WB_CLOUD_HOME           数据目录（默认 ~/.wbsbx）
+  WBSBX_PLATFORM          默认平台（等同于配置里的 platform）
+  WBSBX_PLATFORM_MODULE   第三方驱动的路径/包名（不改内核就能加平台）
   WBSBX_DAEMON_URL        等同于 --remote
   WBSBX_DAEMON_TOKEN      等同于 --token
   WBSBX_PW_MODULE         playwright-core 的位置（装在镜像里时用）

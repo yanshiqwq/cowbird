@@ -1,53 +1,76 @@
-// wbsbx info —— 一个实例的 API 侧信息 +（默认）进容器探活
+// wbsbx info —— 一个实例的详情 +（默认）进沙箱探活
+//
+// 关键设计：**「可见的规格」与「真实配额」要分开显示**。
+// 实测 WorkBuddy 的沙箱 `nproc` 报 32、`free` 报 123GB，而 cgroup 只给 4 核 / 8 GiB ——
+// 只看 nproc 会做出错误的并发决策。配额由 provider 的 instances.info() 负责读 cgroup。
 const { parse, need } = require('../lib/args');
-const cfg = require('../lib/config');
 const ui = require('../lib/ui');
-const cloud = require('../lib/cloud');
-const e2b = require('../lib/e2b');
-const resolve = require('../lib/resolve');
+const registry = require('../lib/platform');
+const { CAP } = require('../lib/platform/contract');
+const { resolveInstance } = require('../lib/platform/target');
+const execCore = require('../lib/platform/exec');
 const log = require('../lib/log').log;
 
-// 一次把所有关心的运行时事实取回来（nproc 的坑见 README「nproc 会说谎」）
 const PROBE = [
-  'echo "host=$(hostname)"',
-  'echo "nproc=$(nproc) all=$(nproc --all)"',
-  'echo "cpu.max=$(cat /sys/fs/cgroup/cpu.max 2>/dev/null || cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null)"',
-  'echo "cpuset=$(cat /sys/fs/cgroup/cpuset.cpus.effective 2>/dev/null || cat /sys/fs/cgroup/cpuset/cpuset.effective_cpus 2>/dev/null)"',
-  'echo "mem=$(awk \'/MemTotal/{printf "%.1fG", $2/1048576}\' /proc/meminfo)"',
-  'echo "uptime=$(uptime -p 2>/dev/null | sed "s/^up //")"',
-  'echo "kernel=$(uname -r)"',
-  'echo "space=$(grep -E "^(cpu|mem|region):" /var/run/cloudstudio/space.yaml 2>/dev/null | tr "\\n" " ")"',
+  'echo "nproc=$(nproc)"',
+  'echo "mem=$(free -m 2>/dev/null | awk \'NR==2{print $2}\')"',
+  'echo "uptime=$(cut -d. -f1 /proc/uptime 2>/dev/null)"',
+  'echo "kernel=$(uname -r 2>/dev/null)"',
 ].join('; ');
+
+const giB = (b) => (b ? (b / 1024 ** 3).toFixed(1) + ' GiB' : '?');
+
+function capacityText(info) {
+  if (!info) return null;
+  const q = info.quota || {};
+  const v = info.visible || {};
+  const real = [];
+  if (q.cpu) real.push(q.cpu + ' 核');
+  if (q.memBytes) real.push(giB(q.memBytes));
+  const seen = [];
+  if (v.cpu) seen.push(v.cpu + ' 核');
+  if (v.memBytes) seen.push(giB(v.memBytes));
+  if (!real.length && !seen.length) return null;
+  const head = real.length ? real.join(' / ') : ui.c.dim('未读到配额');
+  const tail = seen.length ? ui.c.dim(`（可见 ${seen.join(' / ')}）`) : '';
+  return head + tail;
+}
 
 async function run(argv) {
   const args = parse(argv, { flags: ['json', 'api-only'] });
-  const [ref] = need(args, 1, 'info <实例> [--api-only]');
-  const inst = await resolve.resolve(ref);
+  const [ref] = need(args, 1, 'info <实例> [--api-only] [--json]');
 
-  const out = { id: inst.id, name: inst.name, status: inst.status, sessionStatus: inst.sessionStatus };
-  const t = cfg.readToken(inst.id);
-  out.tokenExpireAt = t && t.expireAt;
+  const p = registry.get();
+  const ctx = registry.context(p);
+  ctx.log = (m) => log(m);
+  const inst = await resolveInstance(ctx, ref);
 
-  if (!args.opts['api-only']) {
+  const out = { id: inst.id, name: inst.name, status: inst.status, extra: inst.extra || null, reachable: null };
+
+  // 1) provider 侧元数据 + 容量（读 cgroup）
+  let info = null;
+  if (p.has(CAP.META) && typeof p.instances.info === 'function') {
+    try { info = await p.instances.info(ctx, inst.id); out.info = info; } catch (e) { out.infoError = String(e.message).slice(0, 160); }
+  }
+  if (typeof p.instances.expiry === 'function') {
+    try { out.expiresAt = await p.instances.expiry(ctx, inst.id); } catch {}
+  }
+
+  // 2) 进沙箱探活（可选）
+  if (!args.opts['api-only'] && p.has(CAP.EXEC)) {
     try {
-      const s = await cloud.getSession(inst.id, log);
-      out.link = s.link;
-      out.cwd = s.cwd;
-      out.tokenExpireAt = s.expireAt;
-      out.sessionStatus = s.sessionStatus || out.sessionStatus;
-      const r = await e2b.exec(s, PROBE, { timeout: 30 });
-      const kv = {};
-      for (const line of r.out.split('\n')) {
-        const i = line.indexOf('=');
-        if (i > 0) kv[line.slice(0, i)] = line.slice(i + 1).trim();
+      const ready = await execCore.ensureReady(ctx, inst.id, { wake: true, log });
+      if (!ready.ready) { out.reachable = false; out.error = '沙箱未就绪：' + (ready.why || ''); }
+      else {
+        const r = await execCore.run(ctx, inst.id, { command: PROBE, timeoutMs: p.limits.defaultSyncMs, wake: false, log });
+        out.live = {};
+        for (const line of String(r.out || '').split('\n')) {
+          const i = line.indexOf('=');
+          if (i > 0) out.live[line.slice(0, i)] = line.slice(i + 1).trim();
+        }
+        out.reachable = true;
       }
-      out.live = kv;
-      // E2B 不保证发 end 事件，code 可能是 null；有输出就算通
-      out.reachable = r.code === 0 || (r.code === null && !!r.out);
-    } catch (e) {
-      out.reachable = false;
-      out.error = e.message;
-    }
+    } catch (e) { out.reachable = false; out.error = String(e.message).slice(0, 160); }
   }
 
   if (args.opts.json) { console.log(JSON.stringify(out, null, 2)); return out.reachable === false ? 1 : 0; }
@@ -55,46 +78,25 @@ async function run(argv) {
   const rows = [
     ['ID', out.id],
     ['名字', out.name || ui.c.dim('(未命名)')],
-    ['状态', ui.statusBadge(out.status) + ' / ' + ui.statusBadge(out.sessionStatus)],
-    ['凭据到期', out.tokenExpireAt ? ui.til(out.tokenExpireAt) + ' 后' : ui.c.dim('无缓存')],
+    ['状态', ui.statusBadge(out.status)],
   ];
-  if (out.link) rows.push(['ACP', out.link.replace(/^https:\/\//, '')]);
+  if (out.expiresAt) rows.push(['凭据到期', ui.til(out.expiresAt) + ' 后']);
+  const cap = capacityText(info);
+  if (cap) rows.push(['配额', cap]);
+  if (out.info && Array.isArray(out.info.facts)) for (const f of out.info.facts) rows.push([f.label || '·', f.value]);
   if (out.live) {
     const l = out.live;
-    rows.push(['主机名', l.host || '-']);
-    rows.push(['内核', l.kernel || '-']);
-    rows.push(['CPU 配额', quotaText(l['cpu.max'])]);
-    // nproc 看的是亲和性（cpuset），不是配额 —— 共享宿主的池子会报满宿主的核数
-    rows.push(['CPU 可见', l.cpuset || '-']);
-    rows.push(['nproc', l.nproc + (l.all && l.all !== l.nproc ? ui.c.dim(`（all=${l.all}）`) : '')]);
-    rows.push(['内存', memText(l.mem, l.space)]);
-    rows.push(['运行时长', l.uptime || '-']);
-    if (l.space) rows.push(['机房', l.space.trim()]);
-  } else if (out.error) {
-    rows.push(['探活', ui.c.red('失败：' + out.error.slice(0, 120))]);
+    if (l.kernel) rows.push(['内核', l.kernel]);
+    if (l.nproc) rows.push(['容器 nproc', l.nproc]);
+    if (l.mem) rows.push(['容器内存', Number(l.mem) + ' MB']);
+    if (l.uptime) rows.push(['运行时长', Math.round(Number(l.uptime) / 60) + ' 分钟']);
+  } else if (out.reachable === false) {
+    rows.push(['探活', ui.c.red('失败：' + (out.error || '').slice(0, 120))]);
+  } else if (out.infoError) {
+    rows.push(['元数据', ui.c.yellow(out.infoError)]);
   }
   console.log(ui.table(['项目', '值'], rows, { sep: false }));
   return out.reachable === false ? 1 : 0;
-}
-
-// cpu.max 形如 "400000 100000" = 4 核配额
-function quotaText(cpuMax) {
-  if (!cpuMax) return '未知';
-  if (/^\d+$/.test(cpuMax.trim())) {
-    const usPerCore = 100000;   // cgroup v1：-1 = 不限
-    const v = Number(cpuMax.trim());
-    return v <= 0 ? '不限' : (v / usPerCore).toFixed(1) + ' 核';
-  }
-  const [a, b] = cpuMax.split(/\s+/).map(Number);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || !b) return cpuMax;
-  return a <= 0 || a === -1 ? '不限' : (a / b).toFixed(1) + ' 核';
-}
-
-// /proc/meminfo 是"能看见多少"，不是配额；space.yaml 里的 mem 才是平台给的
-function memText(mem, space) {
-  const q = (space || '').match(/mem:\s*(\S+)/);
-  if (q && mem) return `${mem}（平台配额 ${q[1]}）`;
-  return mem || '-';
 }
 
 module.exports = {
@@ -102,12 +104,13 @@ module.exports = {
   usage: 'info <实例> [--api-only] [--json]',
   help: [
     '选项:',
-    '  --api-only   只看控制面信息，不进容器探活',
+    '  --api-only   只看控制面信息，不进沙箱探活',
     '  --json       输出 JSON',
     '',
     '说明:',
-    '  CPU 会分三行列：配额（cgroup）、可见（cpuset）、nproc。',
-    '  nproc 读的是亲和性而不是配额，共享宿主的池子里它会报满宿主的核数 —— 别拿它当配额。',
+    '  尽量显示两组数字：「配额」来自 cgroup（真实可用），「可见」来自 nproc / free（宿主视角）。',
+    '  两者差很多时（例如可见 32 核、配额 4 核），并发与内存规划要按配额来。',
+    '  平台不暴露容量时这一行省略。',
     '',
     '退出码:',
     '  0  正常（--api-only 时只表示取到信息）',
