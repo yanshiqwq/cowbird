@@ -21,7 +21,6 @@ const COMMANDS = {
   prompt: { mod: '../commands/prompt', alias: ['say'] },
   keepalive: { mod: '../commands/keepalive', alias: ['ka'] },
   login: { mod: '../commands/login', alias: [] },
-  cookie: { mod: '../commands/cookie', alias: [] },
   doctor: { mod: '../commands/doctor', alias: ['diag'] },
   daemon: { mod: '../commands/daemon', alias: ['d', 'svc'] },
   platform: { mod: '../commands/platform', alias: ['providers', 'drivers'] },
@@ -56,56 +55,50 @@ function extractGlobals(argv) {
 
 function help() {
   const cmdRows = [
-    ['ls', '列实例：状态、最近活动、凭据剩余'],
-    ['info', '单个实例详情：CPU 配额、内存、uptime'],
-    ['create', '新建实例（一个会话就是一个容器）'],
-    ['rm', '删除/归档（默认 dry-run，加 --yes 才执行）'],
-    ['rename', '改实例名（会话标题）'],
-    ['exec', '在实例里跑命令（不经 Agent，不进对话）'],
-    ['put', '把本地文件传进实例'],
-    ['get', '把实例里的文件取出来'],
+    ['ls', '实例列表'],
+    ['info', '配额详情'],
+    ['create', '新建实例'],
+    ['rm', '删除/归档'],
+    ['rename', '修改实例名'],
+    ['exec', '在实例里跑命令'],
+    ['put', '传入文件'],
+    ['get', '取出文件'],
     ['history', '导出对话历史'],
-    ['watch', '连着看一会儿输出'],
-    ['prompt', '以用户口吻给会话发一条消息'],
-    ['keepalive', '长驻：把会话钉在「等回答」上，防闲置回收'],
-    ['login', '扫码登录（唯一需要浏览器的一步）'],
-    ['cookie', '查看/导出/实测登录态'],
-    ['doctor', '体检：登录态、接口、实例、凭据、daemon'],
-    ['daemon', '常驻进程：保活、刷 token、续登录态'],
-    ['platform', '看/切平台驱动：能力、执行通道、同步上限'],
+    ['watch', '观测输出'],
+    ['prompt', '向会话发送消息'],
+    ['keepalive', '沙箱保活'],
+    ['login', '登录'],
+    ['doctor', '自检'],
+    ['daemon', '常驻进程'],
+    ['platform', '平台驱动'],
   ];
   console.log(ui.c.bold(`wbsbx ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台）'));
   console.log('\n' + ui.c.bold('用法') + ':  wbsbx <命令> [选项] [参数]');
   console.log('\n' + ui.table(['命令', '说明'], cmdRows));
 
   console.log(`
-${ui.c.bold('实例引用')}
-  以下三种写法等价：完整 id（2120000000000000000）、会话名（work-01）、短序号（01）
-
-${ui.c.bold('常用')}
-  wbsbx login                             扫码登录，之后全走纯 HTTP
-  wbsbx ls                                看有哪些实例
-  wbsbx exec 01 ls -la                    实例之后的内容全部当命令
-  wbsbx daemon start --detach             后台起 daemon，关掉终端也不影响
-  wbsbx daemon targets add 01             把 01 加进保活名单
+${ui.c.bold('实例引用方式：')}
+  1. 完整 id（2120000000000000000）
+  2. 会话名（work-01）
+  3. 短序号（01）
 
 ${ui.c.bold('全局开关')}
   写在命令之前，例如 wbsbx --local ls
-  --local                 这一次不走 daemon，直接用本地凭据
-  --platform <id>         这一次换一个平台驱动（wbsbx platform ls 看有哪些）
-  --remote <地址>         这一次改用另一台机器上的 daemon
+  --local                 使用本地凭据
+  --platform <id>         切换平台驱动
+  --remote <地址>         使用远程 daemon
   --token <令牌>          配合 --remote
 
 ${ui.c.bold('环境变量')}
   WB_CLOUD_HOME           数据目录（默认 ~/.wbsbx）
-  WBSBX_PLATFORM          默认平台（等同于配置里的 platform）
-  WBSBX_PLATFORM_MODULE   第三方驱动的路径/包名（不改内核就能加平台）
+  WBSBX_PLATFORM          默认平台
+  WBSBX_PLATFORM_MODULE   第三方驱动
   WBSBX_DAEMON_URL        等同于 --remote
   WBSBX_DAEMON_TOKEN      等同于 --token
-  WBSBX_PW_MODULE         playwright-core 的位置（装在镜像里时用）
+  WBSBX_PW_MODULE         playwright-core 的位置
   WBSBX_BROWSER           chromium/edge 可执行文件路径
 `);
-  console.log(ui.c.dim('运行 `wbsbx <命令> --help` 查看该命令的选项与退出码。'));
+  console.log(ui.c.dim('运行 `wbsbx <命令> --help` 查看该命令的选项与退出码'));
   return 0;
 }
 

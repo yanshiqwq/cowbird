@@ -15,7 +15,7 @@ WorkBuddy 云沙箱管理器。分两半：
 云沙箱的容器不是你的机器，是平台的临时资源。有两个坑：
 
 1. **没人访问就会被回收。** 控制台上显示「completed」只说明会话结束了，不代表容器还在。
-2. **登录态有硬期限。** 访问凭据 72 小时过期；登录 cookie 写死「首次下发 + 7 天」，滚动刷新不会延期。
+2. **登录态有期限。** accessToken 约 28 天，带 refreshToken 可自动续；换账号＝重新登录一次。
 
 于是这件事得有人一直做：
 
@@ -48,12 +48,12 @@ npm link                          # 或者 npm i -g .
 docker compose up -d
 ```
 
-要求 node ≥ 18（用了内置 fetch）。浏览器不是必需的 —— 只有「扫码登录」和「自动续登录态」要用它。
+要求 node ≥ 18（用了内置 fetch）。**不需要浏览器**：登录只是打印一个链接，你在微信里打开授权。
 
 ## 五分钟
 
 ```bash
-# 1. 登录（唯一需要浏览器的一步，会弹窗扫码）
+# 1. 登录（打印链接，在微信里打开授权）
 wbsbx login
 
 # 2. 看看有哪些实例
@@ -76,9 +76,9 @@ wbsbx daemon status
 # 服务器上
 docker compose up -d          # 或者 npm i -g wbsbx && wbsbx-daemon
 
-# 把登录态推过去（在你本机做，因为要扫码）
-wbsbx login
-scp ~/.wbsbx/state.json 服务器:/path/to/data/
+# 把登录态推过去（token，一个文件）
+wbsbx login                      # 本机授权
+scp ~/.wbsbx/platform/workbuddy/device-token.json 服务器:/path/to/data/platform/workbuddy/
 
 # 本机指向那台 daemon
 wbsbx daemon pair http://服务器:8787 --token <它生成的令牌>
@@ -100,8 +100,7 @@ wbsbx daemon status
 | `watch [--duration <秒>] <实例>` | 连上去看一会儿输出 |
 | `prompt [--wait <秒>] <实例> <文本...>` | 给会话发一句话（同样：实例之后全是文本） |
 | `keepalive [选项] <实例>` | 长驻：把会话钉在「等回答」上，防闲置回收 |
-| `login [--import] [--max-wait <分钟>]` | 扫码登录 / 从现有浏览器导入 |
-| `cookie [dump\|check\|export]` | 看登录态、实测可用性 |
+| `login [--max-wait <分钟>]` | 登录：打印链接，微信里授权 |
 | `doctor` | 体检：数据目录 / 登录态 / 接口 / 实例 / daemon |
 | `daemon ...` | 起停、状态、日志、保活目标、连远程 |
 
@@ -126,13 +125,11 @@ wbsbx daemon install             # 生成 systemd / 计划任务配置（只打�
 |---|---|---|---|
 | `heal` | 10 分钟 | 对名单里的实例 exec 一条探针命令（默认 `uptime`），或跑目标声明的自愈脚本 | 实例开始倒计时被回收 |
 | `refresh` | 6 小时（剩余 < 12h 才动） | 换新 E2B token | 拿旧 token 会 401，CLI 也不好使 |
-| `renew` | 按需（cookie < 2 天） | 走 SSO 静默换新登录 cookie | 满 7 天得人工重新登录 |
+| `renew` | 按需（token 快过期） | 用 refreshToken 换新 accessToken | refreshToken 失效就得重新登录 |
 
-`renew` 需要真浏览器，默认关。开了但机器上没有 chromium，它会自己跳过并说明原因。
-
-⚠ 如果上游的 SSO 会话有**空闲超时**，只在快过期时才续会踩线（SSO 一掉，换 session 的路就断了，
-只能人工扫码）。这种情况把 `renew.always` 设为 `true`：每轮都续一次，顺便让 SSO 保持活跃。
-代价是每 6 小时起一次无头浏览器（约 7 秒）。
+`renew` 是纯 HTTP（拿 refreshToken 换 accessToken），没有浏览器依赖。
+默认关，按 `renew.whenDays` 判断要不要续；`renew.always = true` 则每轮都续一次。
+续期失败（refreshToken 也过期了）就只能重新 `wbsbx login`。
 
 保活有两种模式，由目标自己声明：**探针**（默认，跑一条短命令）和**脚本**（把本地脚本送进去跑，
 用于全量自愈）。脚本可读不到就直接算失败 —— 不会静默退回探针，配置写错要在体检里当场看见。
@@ -217,8 +214,8 @@ docker run -d --name wbsbx-keepalive-01 --restart unless-stopped -u 1000:1000 \
   /opt/wbsbx/bin/wbsbx.js keepalive <实例id> --nudge 300
 ```
 
-`/srv/wbsbx-data` 里只需要两样：`state.json`（cookie + **UA**）和 `tokens/`。
-从旧部署迁移时照着拷过去即可 —— 但 UA 必须是从原登录环境拿到的那个字符串，随便填会全 401。
+`/srv/wbsbx-data` 里只需要两样：`platform/workbuddy/device-token.json`（accessToken + refreshToken）和 `tokens/`。
+从旧部署迁移时把这一个 token 文件拷过去即可 —— 别拷旧的 state.json（cookie 那条路已经删了）。
 
 配置默认值在 `wbsbx.json` 的 `keepalive` 段：`nudgeSec` / `maxNudges` / `questionTimeoutSec` / `stallAfterNudgeSec` / `leadMs` / `prompt`。
 凭据在每次重连前检查，剩不到 `leadMs`（默认 6 小时）就先续一次 —— 纯 HTTP，不需要浏览器。
