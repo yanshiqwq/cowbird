@@ -3,6 +3,35 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.5.1] - 2026-11-17
+
+真机实测一轮（WorkBuddy + Qoder 真账号），修掉四个只有在真机上才会暴露的问题。
+
+### 新增
+
+- 契约加 `EVENT.ARTIFACT`（产物文件）与 `requiresPromptOnCreate`（建实例是否必须带指令）；
+  `lib/platform/stream.js` 的汇总里多一项 `artifacts`。
+- WorkBuddy：`_codebuddy.ai/artifact` → `artifact` 事件（实测能抓到会话里产出的 HTML 报告）。
+
+### 修复
+
+- **Qoder `get` 把文件写坏**：`file_read` 返回带行号的文本（`1\t…`），落盘后内容被污染
+  （实测 "qoder fs test" 被存成 "1\tqoder fs test"）。`fs.read` 现在用 `stripLineNumbers()`
+  剥（全行匹配才剥），`exec.get` / `wbsbx get` 一律走 `base64 -w0`，往返字节一致。
+- **`wbsbx get` 优先用 fs 通道会坏文件**：现在优先 `exec.put/get`（字节级），fs 只作兜底。
+- **Qoder 会自动改标题**：`create --name X` 后第一次对话就被改名，`exec X` 找不到实例。
+  驱动在补发首条指令后再改一次名压回去；`create` 也不再给不需要 prompt 的平台默认补一句。
+  **平台每轮都可能再改，用 id 或 id 前缀最稳。**
+- **Qoder `done` 的 reason 可能是 `[object Object]`**：`stop_reason` 有时是对象；`reasonOf()` 归一。
+
+### 实测确认（此前只是"照文档写"）
+
+- WorkBuddy：`ls` / `info`（cgroup v1 与 v2 都读到真实 4 核 8 GiB）/ `exec`（两代沙箱）/
+  `put`/`get` / 后台任务 / `agent.send`+`stream`，全部通过。
+- Qoder：`create` / `exec`（lifsea8 容器代，cwd=/data）/ `info`（配额 4 核 8 GiB）/ `put`/`get`
+  （字节一致）/ 后台任务 / `agent.send`+`stream`（credits 0.21）/ `rename`，全部通过。
+- 否证：WorkBuddy ACP **不提供 token 用量**；Qoder **不给 token 数只有 credit**。
+
 ## [0.5.0] - 2026-11-17
 
 ### 新增

@@ -328,3 +328,38 @@ node lib/platform/qoder/selftest.js     # 不联网、无凭据，最后打印 �
 - 计费按 credit 倍率 + 沙箱时长，`exec` 不涨 `model_credits` 但会延长沙箱存活。
 
 与仓库 `DISCLAIMER.md` 的口径一致：**非官方用法，风险自负。**
+
+---
+
+## 真机实测补记（2026-11-17，一次性探针会话，测完已删）
+
+真账号跑通的部分（第一次真机验证，之前只有离线自检）：
+
+| 动作 | 结果 |
+|---|---|
+| `create`（qfmodel） | 201，cid `qs_…`，`session_status=idle` |
+| `exec "id; nproc; uname -r"` | `uid=0 cwd=/data`、`4 核`、`5.10.134-18.0.13.lifsea8`（ACK 容器代） |
+| `info` | cgroup 配额 **4 核 / 8.0 GiB**，可见 4 核 / 7.5 GiB，`sandbox_id=sd-…` |
+| `put` / `get` | 24 B 往返 **字节一致**（走 exec base64，见下） |
+| 后台任务 | `on_timeout=background` → job id，轮询拿回 `qoder-bg-done` |
+| `agent.send` + `stream` | 正文「收到」、`done`、`usage{credits:0.21, modelCredits:0.18, sandboxCredits:0.03}` |
+| `rename` | 立即生效（PATCH 或 control_request 其一成了） |
+
+三个真机上才暴露的坑（已修）：
+
+1. **平台会拿对话内容自动改标题** —— `create --name qoder-probe` 之后第一次对话就把名字冲成
+   「等待指令」「等待指令确认」之类，于是 `exec qoder-probe` 找不到实例。
+   - 驱动层：`create` 在补发首条指令后会**再改一次名**压回去（`inst.extra.titleRestored`）。
+   - 但**平台每轮都可能再改**（实测连改两次）。**结论：用 id 或 id 前缀操作，别依赖名字。**
+   - 命令层：`create` 不再给不需要 prompt 的平台默认补一句（`requiresPromptOnCreate=false`），
+     少一轮对话也就少一次被改名。
+2. **MCP `file_read` 返回带行号**（`1\tqoder fs test`），直接落盘会把文件写坏
+   （实测把 "qoder fs test" 存成 "1\tqoder fs test"）。
+   - `fs.read` 现在用 `stripLineNumbers()` 剥（**全行都匹配才剥**，有一行不匹配就原样返回）；
+   - `exec.get` 与 `wbsbx get` 一律走 `base64 -w0`，字节级无损；`file_read` 不再用于传输。
+3. **`stop_reason` 可能是对象**（`{type:'end_turn'}`），`String()` 会吐 `[object Object]`。
+   现在 `reasonOf()` 归一成字符串。
+
+另外记两条否证：**Qoder 不给 token 数**（只有 credit：model/sandbox 拆项）；
+`file_read` 会**吃掉行尾换行**，所以它不能当传输通道。
+

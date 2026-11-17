@@ -274,3 +274,33 @@ WBSBX_LOCAL=1 node bin/wbsbx.js platform show     # 能力表 + 60s 上限 + 默
 WBSBX_LOCAL=1 node bin/wbsbx.js platform ls       # 四个平台都能加载
 WBSBX_LOCAL=1 node bin/wbsbx.js doctor --no-net   # 本 provider 的体检项（登录态应显示 ✗）
 ```
+
+---
+
+## 真机实测补记（2026-11-17）
+
+真账号 + 真实沙箱跑过一遍（**只读 + 一条最小 prompt**，模型 `hy4free` 不花额度）：
+
+| 动作 | 结果 |
+|---|---|
+| `ls` | 真实会话列表，状态/时间/凭据全对 |
+| `info`（cube 代） | **配额 4 核 / 8.0 GiB（可见 5 核 / 8.2 GiB）**，cgroup **v1** |
+| `exec`（cube 代） | `uid=0`、`nproc=5`、`cpu.cfs_quota_us=400000` |
+| `exec`（tl4 代） | **`nproc=32` 但 `cpu.max=400000 100000`、`memory.max=8589934592`** —— 「nproc 会说谎」原样复现 |
+| 退出码 | `exit 7` → `[exit=7]`；`exit 3` → wbsbx 退出码 1 |
+| `put`/`get` | 25 B 往返一致 |
+| 后台任务 | `start` → `poll` → 拿到 `bg-done` |
+| `agent.send` + `stream` | 正文「收到。」、`done(endTurn)`、0 错误 |
+
+真机上补的一个映射缺口（已修）：**`_codebuddy.ai/artifact`** 之前掉进 `raw`，现在映射成
+`EVENT.ARTIFACT`（`action/uri/name/mimeType/size/sourceTool`）—— 这是「agent 产出了哪些文件」的唯一信号，
+实测能抓到会话里的 2 个 HTML 报告。
+
+两条否证（省得以后再猜）：
+
+- **ACP 不提供 token 用量**：文本回合结束后 raw 里没有任何 `usage`/`*Tokens` 字段，
+  `usageOf()` 只能对 `session/endTurn` 里若有的字段生效。要看花费得去控制面。
+- ACP `initialize` 声明了 `extensions: session/steer`、`session/queue_enqueue|list|delete|move|send_now`
+  与 `loadSession` —— **`session/steer` 才是"往正在跑的一轮里插话"的正规口**，比"取消+重发"更稳，
+  以后做 `interrupt` 可以优先试它（当前实现只做挂起提问的取消）。
+

@@ -12,9 +12,12 @@ const { resolveInstance } = require('../lib/platform/target');
 const log = require('../lib/log').log;
 
 function needFileChannel(p) {
+  // 优先走 exec.put/get：那是字节级的（base64 / 二进制帧），往返无损。
+  // fs 通道有的平台是"给人看的文本接口"（例如 Qoder 的 file_read 带行号、还吃掉行尾换行），
+  // 拿它当传输会把文件搞坏，所以只作兜底。
+  if (p.has(CAP.EXEC) && p.exec && typeof p.exec.put === 'function' && typeof p.exec.get === 'function') return 'exec';
   if (p.has(CAP.FS)) return 'fs';
-  if (p.has(CAP.EXEC) && p.exec && typeof p.exec.put === 'function') return 'exec';
-  throw new Error(`本平台（${p.displayName}）没有文件通道（既没有 fs 也没有 exec.put/get）`);
+  throw new Error(`本平台（${p.displayName}）没有文件通道（既没有 exec.put/get 也没有 fs）`);
 }
 
 async function putRun(argv) {

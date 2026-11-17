@@ -21,7 +21,9 @@ async function run(argv) {
   const ctx = registry.context(p);
 
   const model = args.opts.model || ctx.effective.model || cfg.DEFAULT_MODEL;
-  const prompt = args.opts.prompt || ctx.effective.prompt || '你好，先不要做任何事，等我指令。';
+  // 只有平台建会话非要一条指令时（WorkBuddy）才默认补一句；
+  // 其它平台不发 —— 既省一轮，也避免平台拿首条消息自动改掉标题（Qoder 就会）。
+  const prompt = args.opts.prompt || (p.requiresPromptOnCreate ? (ctx.effective.prompt || '你好，先不要做任何事，等我指令。') : null);
 
   const inst = await p.instances.create(ctx, { name, model, prompt }, { log });
   if (args.opts.json) { console.log(JSON.stringify(inst, null, 2)); return 0; }
