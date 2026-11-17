@@ -150,27 +150,50 @@ async function run(argv) {
     add('bad', '平台', String(e.message).slice(0, 160));
   }
 
-  // 驱动自己的体检项
-  if (provider && provider.doctor && typeof provider.doctor.checks === 'function') {
-    try {
-      const ctx = registry.context(provider);
-      for (const c of await provider.doctor.checks(ctx, { net: allowNet })) add(c.level || 'info', c.name || '驱动', c.detail || '');
-    } catch (e) {
-      add('warn', '驱动体检', String(e.message).slice(0, 140));
-    }
-  }
-
   // 历史包袱：这几项目前仍是 WorkBuddy 专属实现（cookie/接口/实例缓存/保活目标）。
-  // 等各驱动的 doctor.checks 补齐后整段删除。
+  // 先跑它们，后面驱动的同名检查会覆盖（驱动更清楚自己的平台）。等驱动补齐后整段删除。
   const legacy = provider && provider.id === 'workbuddy';
+  const hasProviderChecks = Boolean(provider && provider.doctor && typeof provider.doctor.checks === 'function');
   const st = legacy ? await checkLoginState() : null;
   if (legacy) {
     await checkApi(allowNet, st);
     await checkSessions(allowNet, st);
     checkHealTargets();
+    if (!hasProviderChecks) checkBrowser();
+  }
+
+  // 驱动自己的体检项（最后跑，同名覆盖历史检查）
+  if (hasProviderChecks) {
+    // 宽容一点：驱动写 error/good/pass 之类同义词也认，免得每个驱动都要记内核的四档
+    const LV = {
+      ok: 'ok', pass: 'ok', good: 'ok', success: 'ok',
+      info: 'info', note: 'info',
+      warn: 'warn', warning: 'warn', attention: 'warn',
+      bad: 'bad', error: 'bad', fail: 'bad', failed: 'bad', critical: 'bad',
+    };
+    try {
+      const ctx = registry.context(provider);
+      for (const c of await provider.doctor.checks(ctx, { net: allowNet })) {
+        const lv = LV[String((c && c.level) || 'info').toLowerCase()] || 'warn';
+        add(lv, (c && c.name) || '驱动', (c && c.detail) || '');
+      }
+    } catch (e) {
+      add('warn', '驱动体检', String(e.message).slice(0, 140));
+    }
   }
   await checkDaemon();
-  if (legacy) checkBrowser();
+
+  // 同名的行去重：驱动自己的体检项比内核里的历史检查更准（后者是 WorkBuddy 专属的旧实现），
+  // 位置按第一次出现，内容用最后一条。
+  const dedup = [];
+  const at = new Map();
+  for (const row of rows) {
+    const key = row[1];
+    if (at.has(key)) dedup[at.get(key)] = row;
+    else { at.set(key, dedup.length); dedup.push(row); }
+  }
+  rows.length = 0;
+  rows.push(...dedup);
 
   if (args.opts.json) {
     console.log(JSON.stringify(rows.map(([l, n, d]) => ({ level: l, name: n, detail: d })), null, 2));

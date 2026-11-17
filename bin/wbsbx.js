@@ -150,5 +150,6 @@ main()
   .catch((e) => {
     console.error(ui.c.red('出错：') + String((e && e.message) || e).replace(/\n/g, '\n  '));
     if (process.env.WBSBX_DEBUG) console.error(e.stack);
-    process.exit(1);
+    // 能力缺失（例如平台没有 exec）用 2 与"执行失败=1"区分开
+    process.exit(e && e.code === 'E_CAPABILITY' ? 2 : 1);
   });
