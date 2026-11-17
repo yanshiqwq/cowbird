@@ -95,7 +95,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 | 20 | 模型：`GET /PromptCenterService/v1/model/builtin`，12 个，含 `deepseek-v4.1-flash-1017` | `model.list()`；`defaults.model` |
 | 21 | 输出能力：`seq 1 20000` → 108,894 字符全返回；shell 身份 root、cwd `/workspace`；`base64 -w0` 取二进制可行 | `exec.run` 不设输出上限；`fs.write` 分块；`pullFile` base64 |
 
-### 自测覆盖（`selftest.js`，99 项，全离线）
+### 自测覆盖（`selftest.js`，114 项，全离线）
 
 - SSE：整段 / 逐字节 / CRLF（含 `\r|\n` 跨块边界）/ 多行 `data` / 注释行 / `id`,`retry` 忽略 / 非 JSON 不丢帧；
 - 事件：15 种逐一映射、`error` 哨兵算 done、普通 `error` 仍是 error、`stopped`→done、`heartbeat`→raw+alive、未知事件→raw；
@@ -137,13 +137,13 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 > 前提：你自己有一个已登录的码道账号（本驱动用的是**自己账号、自己会话**，见仓库 `DISCLAIMER.md`）。
 > 平台改版会先打断下文第 1 步之前的准备，最脆弱的是 `/shell` 这条隐藏隧道（它不在内核 `/doc` 里）。
 
-### 4.1 取登录态（二选一）
+### 4.1 取登录态（三条路）
 
 **A. 有浏览器（本机 Win/mac，或装了 playwright-core 的 Linux）**
 
 ```bash
 npm i playwright-core            # 可选依赖；没有就用 B 方案
-cowbird login --platform codearts  # 打开登录页，扫码/短信；登进去后自动抓 cookie 存盘
+cowbird login --platform codearts  # 打开登录页（账号密码/短信）；登进去后自动抓 cookie 存盘
 ```
 
 `login` 用的是**一次性上下文**（不是 WorkBuddy 那种持久 profile）：本平台不绑 UA，也不需要留浏览器痕迹。
@@ -161,6 +161,33 @@ cowbird login --platform codearts --cookie 'devclouddevuibjJ_SESSION_ID=…; dev
 ```
 
 驱动只保留 `huaweicloud.com` 域的 cookie，并校验 `devclouddevuibjJ_SESSION_ID` 必须在。
+
+### 4.1b OAuth 那一面（`--oauth`）：能换到凭据，但**打不动控制面**
+
+```bash
+cowbird --platform codearts login --oauth            # 打印授权链接 + 起本地回调
+cowbird --platform codearts login --oauth --callback '<浏览器被打回的那条 127.0.0.1:…/oauth/callback?code=…>'
+```
+
+流程与官方码道插件一致（见 `oauth.js` 头注）：PKCE + DPoP 授权 → 拿 code 去
+`sts.cn-north-4.myhuaweicloud.com/v1/oauth2/tokens` 换 **临时 AK/SK + security_token + refresh_token**。
+`refresh_token` 与签发时的 `client_id` + DPoP 公钥绑定，所以私钥 JWK 和 PKCE verifier 一起落盘
+（`accounts/<账号>/oauth.json`），续期用 `auth.oauthRenew()`。
+
+**实测结论（2026-11-17，真账号）**：
+
+| 面 | 请求 | 结果 |
+|---|---|---|
+| snap-access（agent/chat） | `GET /snap-manager/v1/current/user` + AK/SK 签名 | **200**，返回 `user_name=GT-…`、`user_id=…` |
+| 同一份凭据续期 | refresh_token + 同一把 DPoP 私钥 | **成功**（换密钥会被 STS 拒：`InvalidDPoPHeader`） |
+| 控制面（我们要用的） | `/chat/v1/cloudagent/sessions` + `X-Auth-Token: <security_token>` | 被 `HW-AJAX-REDIRECT` 踢到登录页 |
+| 同上 | `Authorization: Bearer <security_token>` | 同上 |
+| 同上 | 同上请求加 AK/SK `SDK-HMAC-SHA256` 签名 | 同上 |
+| 同上 | cookie（对照，已过期） | 同上 |
+
+⇒ **OAuth 凭据属于 snap-access 那一面，替不了 devcloud 的会话 cookie。** 所以：
+会话/沙箱/`exec` 仍然只能走 cookie（4.1 的 A/B）；OAuth 那份用来做「这是谁的账号」
+（`account ls` 里的身份就是它查出来的）以及将来若改用 snap-access 数据面的备料。
 
 ### 4.2 逐条验证（每条都能判真假）
 

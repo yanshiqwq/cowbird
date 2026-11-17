@@ -3,6 +3,38 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.11.0] - 2026-11-17
+
+**码道补了第二条登录腿：OAuth2 + PKCE + DPoP（`--oauth`）。** 顺带修掉一个会删账号目录的登录 bug。
+
+### 新增
+
+| 能力 | 说明 |
+|---|---|
+| `cowbird login --oauth` | 装官方码道插件那套：打印授权链接 → 浏览器回调 `127.0.0.1:<随机端口>/oauth/callback` → 拿 code 去 STS 换临时 AK/SK + security_token + refresh_token |
+| `--callback '<回调地址>'` | 浏览器在另一台机器 / 回调够不着时，把地址原样粘回来换票 |
+| 本地回调接收器 | 只活几十秒的 `127.0.0.1` 服务；接住 `?code=`，旧式 portal 的 `?secret=&redirect=` 也认（转 ticket 轮询） |
+| ticket 轮询兜底 | `GET …/snap-manager/v1/login/ticket?ticket_id=&secret=`，就是「打印链接 + 轮询状态机」那条腿 |
+| `oauth.signRequest()` | 华为云 `SDK-HMAC-SHA256` 签名（AK/SK + `x-security-token`），已用真账号打通过 200 |
+| 身份回填 | 换票响应里没有人身份，登录后追问 `snap-manager/v1/current/user`，写进 `account.json` —— `account ls` 里码道那行现在有名字了 |
+
+### 修掉
+
+| 问题 | 后果 |
+|---|---|
+| 登录失败/超时走 `restore()`，且备份已被另一进程清掉 | **先删账号目录、再 rename 一个不存在的备份 ⇒ 凭据整锅没了**（真实事故）。现在失败只清自己那份备份，`restore()` 先确认备份存在，备份名带 pid |
+| STS 响应字段名读的是 `credentials.access` / `secret` | 实际是 `access_key_id` / `secret_access_key`，于是换回来的 AK/SK 一直是空的（两种都认了） |
+| 码道 `ttlDays` 只看 cookie | session cookie 没有 expires ⇒ `account ls` / `doctor` 永远显示「未知」；现在回落到 OAuth 凭据的 expiration |
+
+### 实测结论（负结果，也是结论）
+
+OAuth 凭据**不能**替控制面 cookie。同一份凭据：
+
+- `snap-access /snap-manager/v1/current/user` + AK/SK 签名 → **200**（凭据本身没问题，身份 `GT-…`）
+- `devcloud /chat/v1/cloudagent/sessions` 四条路（`X-Auth-Token` / `Bearer` / AK-SK 签名 / cookie 对照）→ 全部被 `HW-AJAX-REDIRECT` 踢到登录页
+
+所以码道的会话与沙箱仍然只能靠 cookie（12 小时量级过期，`--cookie` 或浏览器登录）。OAuth 那份的用处是身份、以及将来若改用 snap-access 数据面的备料。详见 [lib/platform/codearts/README.md](lib/platform/codearts/README.md) 的 4.1b。
+
 ## [0.10.0] - 2026-11-17
 
 **多账号与多渠道共存：一个平台可以挂多个账号，几个平台可以同时挂着。**
