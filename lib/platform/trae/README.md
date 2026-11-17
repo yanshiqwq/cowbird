@@ -76,28 +76,48 @@ data.items[] = { message_id, role, message_type, message_index, content, token_u
 - ❌ **`exec` / `fs`**：网页版 156 条端点里没有 terminal/pty/shell/exec。沙箱里的真 shell 只有
   三个入口：agent 的 `Shell` 工具（走模型回合）、VNC 桌面（`wss://<sandbox>…/websockify`）、
   IDE/文件通道（`/explorer/<sid>` WS）。数据面鉴权还差一个头，见下。
-- ⚠️ **`agent.send`（`prompt`）未打通**：请求体形状没拿到，试过 13 种全回
-  `400 {"code":991102,"message":"invalid parameter"}`。`ls / info / create / rm / rename / history`
-  都正常，只有 `prompt` 会明确告诉你这条未打通（不是让你对着 invalid parameter 猜）。
+- ❌ **`agent.send`（`prompt`）走不了 HTTP**：网页端发消息不是 `POST /messages`，而是
+  `wss://frontier.zijieapi.com/ws/v2?…&Authorization=Cloud-IDE-JWT%20<jwt>&productCode=solo_web`
+  上的**二进制 protobuf 双向流**（opcode=2，帧里有 `x_frontier_*` 字段）。HTTP 的
+  `POST /chat_sessions/:sid/messages` 是给 lite/IDE/IM 客户端用的，body 有严格 schema，
+  连「回读出来的 user message 镜像字段」都被 `991102 invalid parameter` 打回。
+  ⇒ 要做 `prompt` 得实现 protobuf WS，不在本期范围；驱动会明确报这条未打通。
 - ⚠️ **事件流是轮询**：官方 `subscribe` 是带 heartbeat 的 SSE，但帧格式未摸；先用
   `messages` 做 diff（语义等价：新消息 → 归一事件 → 完成时 `done`）。
 
-## 5. 数据面（未打通，留给后续）
+## 5. 数据面：鉴权已破解（`exec` 仍然没有）
 
-`GET https://agent-sandbox-bj-c1-gw.trae.cn/explorer/<sid>` 回
-`400 "Connection header did not include 'upgrade'"` ⇒ 这是 WebSocket；WS 握手无条件 101
-（`Server: volcclb`）⇒ 鉴权在应用层。它的 HTTP 子路径（`/file/:path`、`/slash/list`）回 401，
-错误体暴露了校验方式：
+**要什么**（2026-11-18 实测，别再用 Bearer 试了）：
 
-```
-User authentication failed: Control plane authentication failed:
-GET https://trae-api-cn.mchost.guru/api/remote/v1/chat_sessions/<sid> - 401
+```http
+Authorization: Cloud-IDE-JWT <Cloud-IDE-JWT>      ← 字面的 scheme 名，14 字符含空格
+X-Trae-Client-Type: web
 ```
 
-即网关把凭据转给控制面回查。已试过并失败的头：`authorization: Bearer <会话令牌|Cloud-IDE-JWT>`、
-`x-trae-token`、`x-sandbox-token`、`x-cloudide-token`、`cookie`、`x-forwarded-cookie`。
-**下一步**：在一次性浏览器里打开该会话的 explorer，用 CDP 抓真实请求头/首帧 —— 拿到后
-`exec`/`fs` 才可能加进来（届时把能力位补上，内核不用改）。
+- 后面跟的是 `GetUserToken` 换到的那个 8h JWT，**不是** `Bearer <会话令牌>`、**不是**
+  `Bearer <Cloud-IDE-JWT>`、也不是 `x-cloudide-token`。之前 401 的唯一原因是 scheme 前缀写错。
+- WS 形态：浏览器 JS 不能设请求头，前端把空格换成点塞进子协议 ——
+  `Sec-WebSocket-Protocol: Cloud-IDE-JWT.<jwt>`，服务端 101 并回显该子协议。
+- WS 协议是 **JSON-RPC 2.0**（`system.ping` 回 ts，`fs.readdir` 可用），心跳 30s。
+
+**数据面有什么**（12 条路由，bundle 里 `transport:"dataPlane"` 的全部）：
+
+```
+/file/:path          读工作区文件（**只认 git 树里的相对路径**，/etc/hostname 读不到）
+/uploadFile          上传
+/slash/list, /slash/:type/:scope/:name      slash 补全
+/diffview/*          turn / toolcall / products 的 diff
+/atfile, /archive.zip, /convert/file/:path
+```
+
+**有没有 exec —— 没有**（三条独立证据）：
+① 数据面 12 条路由里没有 terminal/pty/shell/exec/process；
+② WS 的 JSON-RPC 方法空间只有 `fs.*` 与 `system.ping`；
+③ VNC（`wss://<sandbox>.…/websockify`）是 RFB 像素协议，不是命令行。
+⇒ 沙箱里跑命令的唯一入口仍是 agent 的 `Shell` 工具（走模型回合、消耗额度）。
+
+**下一增量（还没做）**：有了这把钥匙就能加 `fs`（`/file/:path` + WS `fs.readdir`），
+届时声明 `CAP.FS`、实现 `fs.list/read`，内核不用改。
 
 ## 6. 自测
 

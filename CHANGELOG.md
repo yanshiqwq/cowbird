@@ -3,6 +3,19 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.13.1] - 2026-11-18
+
+**TRAE：补上数据面鉴权的结论，并把 `exec`/`prompt` 两条写成"平台没有"而不是"没做"。**
+
+- 数据面（`agent-sandbox-*.trae.cn/explorer/<sid>`）要的是
+  `Authorization: Cloud-IDE-JWT <jwt>` + `X-Trae-Client-Type: web`；
+  WS 用子协议 `Cloud-IDE-JWT.<jwt>`，协议为 JSON-RPC 2.0（`fs.*` / `system.ping`）。
+  之前 401 的唯一原因是把 scheme 写成了 `Bearer`。
+- 12 条数据面路由里没有 terminal/pty/shell/exec，WS 方法空间也只有 `fs.*` + `ping`
+  ⇒ **`exec` 这个能力在 TRAE 网页版不存在**，不是尚未打通；`fs` 可在下个增量补上。
+- 发消息不是 HTTP：网页端走 `wss://frontier.zijieapi.com/ws/v2` 的二进制 protobuf 流，
+  `POST /messages` 是别的客户端用的、schema 校验很严 ⇒ `prompt` 明确报未打通。
+
 ## [0.13.0] - 2026-11-17
 
 **新增第五个平台：TRAE（字节 `work.trae.cn`）。** 一个会话 = 一台云端 KVM 真 VM；但网页版**没有直连执行通道**，所以这次是「能管能看，不能 exec」。
@@ -27,11 +40,15 @@ terminal/pty/shell/exec，沙箱里的真 shell 只有三个入口（agent 的 S
 
 ### 已知未打通（写在这里，免得下次重新查）
 
-- **`agent.send`（`cowbird prompt`）**：请求体形状未知，13 种组合全被上游
-  `400 {"code":991102,"message":"invalid parameter"}`。驱动会明确报「这条未打通」，不装死。
-- **沙箱数据面**（`agent-sandbox-*.trae.cn/explorer/<sid>` 的 WebSocket）：握手无条件 101，
-  鉴权在应用层；HTTP 子路径 401，错误体显示网关把凭据转给控制面（`trae-api-cn.mchost.guru`）
-  回查。打到 200 后 `exec`/`fs` 才有可能加进来 —— 届时只加能力位，内核不用改。
+- **沙箱数据面已破解**（2026-11-18）：要的是 `Authorization: Cloud-IDE-JWT <jwt>` +
+  `X-Trae-Client-Type: web`（`Cloud-IDE-JWT` 是字面 scheme 名，不是 Bearer —— 之前 401 全因前缀写错）。
+  WS 用 `Sec-WebSocket-Protocol: Cloud-IDE-JWT.<jwt>`，协议是 JSON-RPC 2.0（`fs.*` / `system.ping`）。
+  12 条数据面路由全是文件/slash/diff，**没有任何 terminal/pty/shell/exec** ⇒ `exec` 不存在，
+  不是没打通。`fs` 可以加（`/file/:path` + WS `fs.readdir`），留给下一增量。
+- **`agent.send`（`cowbird prompt`）走不了 HTTP**：网页端是
+  `wss://frontier.zijieapi.com/ws/v2` 上的**二进制 protobuf 双向流**（opcode=2）；
+  HTTP 的 `POST /messages` 有严格 schema，连「回读镜像字段」都被 991102 打回。
+  驱动明确报 E_UNSUPPORTED，不装死。
 
 ## [0.12.0] - 2026-11-17
 
