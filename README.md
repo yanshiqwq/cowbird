@@ -76,7 +76,7 @@ cowbird login
 # 2. 看看有哪些实例
 cowbird ls
 # ID                   名字        状态                  最近活动  凭据剩余
-# 2120000000000000000  work-01     completed/completed   2.8d      2.9d
+# 2123456789012345678  work-01     completed/completed   2.8d      2.9d
 
 # 3. 进去跑条命令（走 E2B，不惊动 Agent，也不进对话记录）
 cowbird exec work-01 "uname -a"
@@ -159,7 +159,7 @@ cowbird daemon install             # 生成 systemd / 计划任务配置（只�
     "scriptsDir": "./sandbox",
     "timeoutSec": 120,
     "targets": [
-      { "id": "2120000000000000000", "name": "sb-01", "script": "heal/sb-heal-tun.sh" },
+      { "id": "2123456789012345678", "name": "sb-01", "script": "heal/sb-heal-tun.sh" },
       { "id": "2118716898270863360", "name": "sb-02" }
     ]
   }

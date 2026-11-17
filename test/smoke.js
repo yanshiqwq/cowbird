@@ -105,9 +105,9 @@ function frame(obj) {
   });
 
   console.log('\n实例引用');
-  const LIST = [{ id: '2120000000000000000', name: 'wb-sandbox-01' }];
+  const LIST = [{ id: '2123456789012345678', name: 'wb-sandbox-01' }];
   ok('完整 id / 名字 / 短序号都能命中', () => {
-    assert.strictEqual(resolve.match(LIST, '2120000000000000000')[0].id, LIST[0].id);
+    assert.strictEqual(resolve.match(LIST, '2123456789012345678')[0].id, LIST[0].id);
     assert.strictEqual(resolve.match(LIST, 'wb-sandbox-01')[0].id, LIST[0].id);
     assert.strictEqual(resolve.match(LIST, '01')[0].id, LIST[0].id);
   });
@@ -291,9 +291,9 @@ function frame(obj) {
     assert.deepStrictEqual(t[1], { id: '123', name: '', script: '' });
   });
   ok('id 写成 JSON 数字会丢精度（所以文档要求写字符串）', () => {
-    // 2120000000000000000 > 2^53，作为 Number 已经不准；这不是 bug，是必须写引号的原因
-    assert.notStrictEqual(String(2120000000000000000), '2120000000000000000');
-    assert.strictEqual(String(normalizeTargets([{ id: '2120000000000000000' }])[0].id), '2120000000000000000');
+    // 2123456789012345678 > 2^53，作为 Number 已经不准；这不是 bug，是必须写引号的原因
+    assert.notStrictEqual(String(2123456789012345678), '2123456789012345678');
+    assert.strictEqual(String(normalizeTargets([{ id: '2123456789012345678' }])[0].id), '2123456789012345678');
   });
 
   await okAsync('没有 script 的目标仍然跑 probe', async () => {

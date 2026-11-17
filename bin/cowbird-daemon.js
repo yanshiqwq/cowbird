@@ -57,7 +57,7 @@ async function main() {
 用法: cowbird-daemon [--host 127.0.0.1] [--port 8787] [--token <令牌>] [--quiet]
 
 配置（$COWBIRD_HOME/cowbird.json）:
-  heal.targets[]      要保活的实例 [{ "id": "2120000000000000000", "name": "work-01" }]
+  heal.targets[]      要保活的实例 [{ "id": "2123456789012345678", "name": "work-01" }]
   heal.intervalMs     保活周期，默认 600000（10 分钟）
   refresh.intervalMs  刷新 token 周期，默认 21600000（6 小时）
   renew.enabled       是否走 SSO 续登录态（需要 playwright-core），默认 false
