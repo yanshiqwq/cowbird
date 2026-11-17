@@ -261,3 +261,38 @@ wbsbx answer --platform codearts <实例> --question <question_id> --option 苹�
 - 该通道等价于沙箱内 root 任意执行 —— 但平台自身把 bash 设为 `always_allow`、`CODEAGENT_PERMISSION_AUTO_ALLOW=true`，所以**不是绕过审批**。
 - `cost=0`、不进历史是平台的内部行为；大规模滥用可能触发风控，风险自负（同仓库 `DISCLAIMER.md`）。
 - 本驱动**不发起任何网络请求**，除非你调用它的方法。`selftest.js` 与 `node --check` 都是纯离线的。
+
+---
+
+## 真机实测补记（2026-11-17，一次性探针会话，测完已删）
+
+| 动作 | 结果 |
+|---|---|
+| `ls` | 4 个真实会话 |
+| `create` | 建会话接口只吃空 body，名字要建完再 PATCH |
+| `exec` 单行 | `uid=0`、`nproc=2`、内核 **`6.6.0-72.0.0.76.r1014_62.hce3.aarch64`**（欧拉 ARM！） |
+| `exec` 多行 + 子 shell + 退出码 | `exit 5` → `[exit=5]`，stdout/stderr 分离 |
+| 截断 | `--timeout 5` 跑 `sleep 20` → 正确标 `truncated`，并提示"别马上重试（会 busy）" |
+| busy 退避 | 命中后按 2s 退避重试，退避用完才报错（不假装成功） |
+| `info` | **配额 2 核 / 7.8 GiB**、`credit=1.21`、内核会话 `ses_…`、`agent=build` |
+| `fs.list` | `files/tree` 的信封解析正确（`/workspace` 下有 `.codeartsdoer`） |
+| `put`/`get` | 29 B 与 **264 KiB** 都是字节一致（分块走单条命令没问题） |
+
+### 三个只有真机才会踩到的坑（已修）
+
+1. **`/shell` 不是通用 bash**：
+   - **换行会被吞**：`echo a\necho b` 的输出是 `anecho b`；
+   - **shell 变量不保留**：`X=1; echo X=$X` 输出 `X=`，连 `f=$(mktemp)` 都拿不到值。
+   → 原来的多行包装器必然报 `syntax error near unexpected token '('`。
+   **修法**：外层命令改成"零变量、零换行"的 `echo '<b64>' | base64 -d | bash -s`，
+   脚本内容 base64 化后由沙箱里的 bash 解码执行 —— 变量、子 shell、引号、退出码全保住。
+2. **沙箱在 ≠ 能插命令**：agent 自己也在用同一条 kernel session（串行）。wake 刚发完一轮
+   prompt 就去 exec 会连续撞 `Session … is busy`。
+   → `exec.probe` 现在要求「有 kernel session **且** 会话不在跑」才算 ready；
+   内核见到 `why==='busy'` **不去 wake**（那是白花钱），只等它空下来。
+3. **平台会拿首条消息自动改标题**：`create --name wbsbx-probe` 之后 wake 那一轮就变成
+   `执行 true 命令并回复 ok`，`exec wbsbx-probe` 直接找不到实例。
+   → `create` 把名字记进 store，`execWake` 结束时 best-effort 改回来；**但用 id 永远最稳**。
+
+另外记两条实测数字：`create` 不花 credit 也不建沙箱（沙箱只在真正一轮 agent 时才建）；
+`wake` 一轮（"执行 true 并回复 ok"）约 **1.2 credit**，比预估的 0.2 高，批量唤醒要注意。

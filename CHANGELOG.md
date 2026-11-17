@@ -3,6 +3,33 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.5.3] - 2026-11-17
+
+码道与 MiniMax 真机实测（第三、四家），修掉三个只有真机才会暴露的问题。
+
+### 修复
+
+- **码道 `/shell` 不是通用 bash**：换行被吞（`echo a\necho b` → `anecho b`）、shell 变量不保留
+  （`X=1; echo X=$X` → `X=`）。原来的多行包装器必然语法错误。
+  改成外层"零变量零换行"的 `echo '<b64>' | base64 -d | bash -s`，脚本由沙箱 bash 解码执行 ——
+  多行、子 shell、引号、退出码、stderr 分离全部保住（实测 `exit 5`、264 KiB 文件往返一致）。
+- **码道「沙箱在」≠「能插命令」**：agent 自己也占着同一条 kernel session。
+  `exec.probe` 现在要求「有 kernel session 且会话不在跑」；内核遇到 `why==='busy'`
+  **不去 wake**（白花钱），只等它空下来；`E_BUSY` 退避从 3 次 × 0.5s 提到 6 次并尊重
+  provider 给的 `retryAfterMs`。
+- **码道会拿首条消息自动改标题**（同 Qoder）：`create` 把名字记进 store，`execWake` 结束时改回来。
+- **MiniMax 的 `yy` 不能复用**：同路径、1 分钟内抓的 yy，配新 `x-timestamp` 重放仍 401。
+  `captureYY` 返回 `reusable:false` + 说明，`doctor` 的 yy 行改为 warn ——
+  **不逆出 yy 算法就无法纯 HTTP 驱动 MiniMax**，只能读 `/v1/api/user/info` 与 `/config`。
+
+### 实测确认（码道）
+
+`ls` / `create` / `exec`（单行、多行、子 shell、退出码、stderr）/ 截断识别 / busy 退避 /
+`info`（配额 2 核 7.8 GiB、credit 1.21）/ `fs.list`（files 信封）/ `put`+`get`（264 KiB 字节一致）。
+
+沙箱画像补充：这次拿到的是 **aarch64 + `hce3` 欧拉内核**（`6.6.0-72.0.0.76…aarch64`），
+与此前记录的 x86 不同 —— 码道池子里同时有 x86 与 ARM。
+
 ## [0.5.2] - 2026-11-17
 
 把剩下 5 条命令也接到平台门面上（此前只有 exec/ls/create/rm/rename/info/put/get/doctor 接了）。
