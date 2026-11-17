@@ -266,6 +266,62 @@ cowbird --platform codearts login --oauth --callback '<浏览器被打回的那�
 工作区打包（**白名单里含 `.env*`**）上传到 OBS，且上传链路 `rejectUnauthorized:false`
 （`NODE_TLS_REJECT_UNAUTHORIZED=0`）。用它之前先看清那个面板的开关。
 
+### 4.1f 官方 CLI 解包结论（26.11.9，2026-11-17）：OpenCode 换皮 + AK/SK + 只有模型面
+
+官方 CLI 的安装脚本与清单是公开的，直接取二进制在隔离 HOME 里跑：
+
+```bash
+# 清单（按 os/arch 给下载地址）
+curl -sL https://cnnorth4-cloudide-marketplace.obs.cn-north-4.myhuaweicloud.com/codearts/cli_tui/install_script/codearts_cli_versioninfo_v1.0.json
+# 包：agentkernel（183MB，Bun ELF）+ codearts（1KB bash 启动壳）
+curl -sL https://codearts-agent-obs-cdn.huaweicloud.com/codearts/cli_tui/latest/codearts-install-26.11.9-linux-x64.tar.gz
+```
+
+**它要什么凭据**：不给就拒绝服务，且只认一种 ——
+
+```
+●  认证失败，没有设置环境变量CODEARTS_CLI_AK/CODEARTS_CLI_SK
+   请在华为云统一身份认证页面申请AK/SK，通过配置环境变量的方式使用cli命令。
+   https://codearts.huaweicloud.com/portal/settings/cli-auth
+```
+
+设了 `CODEARTS_CLI_AK/SK` 之后一切正常（`codearts models` 直接列出 12 个 `huaweicloud-maas/*` 模型）。
+凭据落盘处是 `~/.codeartsdoer/cli-data/auth.json`（`codearts auth list` 自己打印的），
+但 AK/SK **不落盘**，只走环境变量；`auth.json` 是给 provider OAuth 用的（现在 0 条）。
+
+**它打哪些域名**（二进制里 `strings` 出来的全集）：
+
+| 域名 | 用途 |
+|---|---|
+| `snap-access.cn-north-4.myhuaweicloud.com`（含 `/snap-manager`） | 模型/chat/身份 —— 和 4.1b 的 OAuth 面同一个网关 |
+| `sts.cn-north-4` / `iam.myhuaweicloud.com` | 换凭据 |
+| `ide.cn-north-4` / OBS（turbocontext、codegraph、marketplace）/ 遥测 collector | 索引、升级、埋点 |
+
+**`devcloud` 出现 0 次，`cloudagent` 两次都是压缩 JS 里的误报** —— 也就是说
+**官方 CLI 完全不碰控制面，也不碰云沙箱**。`codearts session list` 列的是本地 OpenCode 会话（空）。
+
+**它是 OpenCode 换皮**，启动壳里写死了这些东西：
+
+```
+export SCENARIO=codeartsdoer  OPENCODE_CHANNEL=latest  OPENCODE_MODE=tui  PLUGIN_ENV=hc
+export OPENCODE_CONFIG=~/.codeartsdoer/codearts_cli.json
+export KERNEL_DATA_DIR=~/.codeartsdoer/cli-data
+export NODE_TLS_REJECT_UNAUTHORIZED=0        # ← 全局关 TLS 校验，写死在启动脚本里
+```
+
+`agentkernel` 就是 OpenCode（`codearts_serve` / `acp` / `attach` / `session` / `opencode.db` /
+`opencode.ai/config.json` schema 全在），所以官方 CLI 的“能力”等于「本地 OpenCode + 华为云的模型网关」。
+这也解释了 4.1e 的结论：桌面/CLI 端在**本地**跑 agent，用不着云沙箱，于是官方没有任何
+云沙箱客户端 —— 四条独立证据（IDE、CLI、小程序、第三方网关）指向同一个事实：
+**云沙箱只有 Web 控制台这一个入口，且只认 cookie。**
+
+顺带两条值得知道的：
+
+- `NODE_TLS_REJECT_UNAUTHORIZED=0` 是官方启动脚本里的**明文默认值**，加上 4.1e 提到的
+  OBS 上传链路 `rejectUnauthorized:false` —— 用它跑在不受信网络里要当心。
+- CLI 的 `acp` 子命令会设 `CODEARTS_ENV=ai-devSpace` 并起 ACP 模式。如果哪天想把
+  「官方 agent（本地）」当成一个平台接进 cowbird，这就是现成的门（我们 WorkBuddy 驱动已经说 ACP）。
+
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
