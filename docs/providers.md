@@ -216,6 +216,7 @@ COWBIRD_PLATFORM_MODULE=/path/to/my-provider.js cowbird ls
 | 截断 ≠ 成功 | 200 + 空输出 + 状态空，通常是平台超时截断；要标 `truncated:true` |
 | `busy` 不是失败 | 上一个命令还在跑，抛 `E_BUSY`，内核会退避重试 |
 | 认证态会轮换 | 不要缓存 token；每次请求从 `ctx.store` 重读（也是多账号不串的前提） |
+| cookie 型平台要提供 `auth.alive` | daemon 的 `warm` 循环每 10 分钟用它打一次轻量请求；有它才可能靠"保持活跃"让会话不过期，没有就跳过 |
 | 模块级缓存会串号 | 同一进程会交替用不同账号的 `ctx`，任何「记住上次的凭据」的写法都是事故 |
 | 未登录的判定各不相同 | 401 / 200+空体+重定向头 / 业务 JSON，`transport` 里统一翻成一个可识别的 `AuthError` |
 | 别假装成功 | 没实测过的接口就抛 `E_UNSUPPORTED` 并在 README 写清楚 —— 静默失败比报错更难查 |

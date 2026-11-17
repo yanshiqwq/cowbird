@@ -175,13 +175,20 @@ cowbird daemon heal|refresh|renew  # 立刻跑一轮
 cowbird daemon install             # 生成 systemd / 计划任务配置（只打印，不擅自改系统）
 ```
 
-它在做三件事，周期不同、互不影响：
+它在做四件事，周期不同、互不影响：
 
 | 循环 | 默认周期 | 干什么 | 挂了会怎样 |
 |---|---|---|---|
 | `heal` | 10 分钟 | 对名单里的实例 exec 一条探针命令（默认 `uptime`），或跑目标声明的自愈脚本 | 实例开始倒计时被回收 |
 | `refresh` | 6 小时（剩余 < 12h 才动） | 换新 E2B token | 拿旧 token 会 401，CLI 也不好使 |
 | `renew` | 按需（token 快过期） | 用 refreshToken 换新 accessToken | refreshToken 失效就得重新登录 |
+| `warm` | 10 分钟 | 对每个渠道发一次轻量请求（`auth.alive()`），让服务端别把会话当闲置回收 | 只有 session cookie 的平台会提前掉线（见下） |
+
+`warm` 是给**没有 refresh_token 的平台**准备的：像码道/Qoder 这种只有会话 cookie 的，
+能不能"挂着不掉"完全取决于服务端是不是滑动过期。`warm` 每 10 分钟打一次真请求
+（码道是 `/rest/me`，Qoder 是 `/rest/me`），如果服务端按活跃度续期，就等于永续；
+如果没有 `auth.alive()` 这个能力（如 MiniMax），这一轮直接跳过，不装作做了。
+`cowbird daemon warm` 可以立刻手动跑一轮，`daemon status` 会显示每个渠道成功/失败。
 
 `renew` 是纯 HTTP（拿 refreshToken 换 accessToken），没有浏览器依赖。
 默认关，按 `renew.whenDays` 判断要不要续；`renew.always = true` 则每轮都续一次。

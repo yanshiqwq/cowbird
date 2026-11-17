@@ -84,6 +84,18 @@ async function status(argv) {
     return 1;
   }
 
+  const warmLine = (st, fmtAge) => {
+    const w = st.config && st.config.warm;
+    if (!w || w.enabled === false) return ui.c.dim('关');
+    const last = st.lastWarm;
+    if (!last) return ui.c.dim(`开（每 ${Math.round(w.intervalMs / 60e3)} 分钟）· 还没跑过`);
+    if (last.skipped) return ui.c.dim(`跳过（${last.skipped}）`);
+    const tried = (last.results || []).filter((r) => r.ok !== undefined);
+    const bad = tried.filter((r) => !r.ok);
+    return `开（每 ${Math.round(w.intervalMs / 60e3)} 分钟）· ${fmtAge(st.lastWarmAt)} · ${tried.length - bad.length}/${tried.length}` +
+      (bad.length ? ui.c.yellow(` · 失败 ${bad.map((b) => b.channel).join(',')}`) : '');
+  };
+
   const fmtAge = (iso) => {
     if (!iso) return '从未';
     const s = Math.floor((Date.now() - Date.parse(iso)) / 1000);
@@ -105,6 +117,7 @@ async function status(argv) {
     ['上一轮保活', `${fmtAge(st.lastHealAt)} · ${lastHeal}`],
     ['上一轮刷新', `${fmtAge(st.lastRefreshAt)} · ${st.lastRefresh && st.lastRefresh.done ? st.lastRefresh.done.length + ' 份' : '-'}`],
     ['登录态续期', st.config.renew.enabled ? `开（剩 ${st.config.renew.whenDays} 天时）· ${fmtAge(st.lastRenewAt)}` : ui.c.dim('关')],
+    ['登录态保活', warmLine(st, fmtAge)],
     ['累计错误', st.errors ? ui.c.yellow(st.errors) : '0'],
   ];
   console.log(ui.table(['项目', '状态'], rows, { sep: false }));
@@ -220,6 +233,7 @@ async function trigger(which) {
     heal: () => client.heal(),
     refresh: () => client.refresh(),
     renew: () => client.renew(),
+    warm: () => client.warm(),
   };
   const r = await map[which]();
   console.log(JSON.stringify(r, null, 2));
@@ -289,6 +303,7 @@ async function run(argv) {
     case 'heal': return trigger('heal');
     case 'refresh': return trigger('refresh');
     case 'renew': return trigger('renew');
+    case 'warm': return trigger('warm');
     case 'install': return install(rest);
     case undefined:
     case 'help':
@@ -301,7 +316,7 @@ async function run(argv) {
   logs [-n 50] [-f]       看日志，-f 跟踪
   targets [ls|add|rm]     看/改保活目标（add 01 02 支持短序号）
   pair <url> [--token]    连远程 daemon
-  heal | refresh | renew  立即跑一轮
+  heal | refresh | renew | warm  立即跑一轮
   install [--write]       生成 systemd / 计划任务配置`);
       return 0;
     default:
@@ -322,11 +337,11 @@ module.exports = {
     '  logs [-n <行数>] [-f]   看日志，-f 跟踪',
     '  targets [ls|add|rm]     看/改保活目标（add 01 02 支持短序号）',
     '  pair <地址> [--token <令牌>]  连远程 daemon',
-    '  heal | refresh | renew  立即跑一轮',
+    '  heal | refresh | renew | warm  立即跑一轮',
     '  install [--write]       生成 systemd / 计划任务的配置（只打印，--write 才落盘）',
     '',
     '说明:',
-    '  daemon 只管三件事：heal 保活、refresh 刷 token、renew 续登录态。',
+    '  daemon 管四件事：heal 保活实例、refresh 刷 token、renew 换登录态、warm 让登录态别被回收。',
     '  keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `cowbird keepalive --help`。',
   ],
 };
