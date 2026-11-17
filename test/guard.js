@@ -25,11 +25,10 @@ const RULE_IMPORTS = /require\(['"]\.{1,2}\/(?:lib\/)?(?:cloud|session|e2b|acp|b
 const BASELINE = {
   hosts: ['lib/config.js', 'lib/daemon/renew.js'],
   imports: [
+    // 还没搬完的：daemon 三条循环 + doctor 的 WorkBuddy 专属检查 + keepalive（WB 特有）
     'lib/cloud.js', 'lib/daemon/heal.js', 'lib/daemon/renew.js',
     'lib/daemon/scheduler.js', 'lib/daemon/server.js', 'lib/keepalive.js',
-    'lib/resolve.js', 'commands/cookie.js', 'commands/doctor.js',
-    'commands/history.js', 'commands/keepalive.js', 'commands/login.js',
-    'commands/prompt.js', 'commands/watch.js',
+    'lib/resolve.js', 'commands/doctor.js', 'commands/keepalive.js',
   ],
 };
 

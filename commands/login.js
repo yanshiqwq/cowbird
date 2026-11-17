@@ -1,97 +1,65 @@
-// wbsbx login —— 唯一还需要浏览器的命令：扫码/短信登录个人号，把 cookie 和 **UA** 一起存下来
-// 入口必须是 platform=agents（admin 是企业控制台，个人号会报"没有企业"）
+// wbsbx login —— 登录（唯一可能用到浏览器的命令）
 //
-// 存 UA 是必须的：服务端把会话跟 UA 精确绑定（改一个字符就 401），
-// 之后所有接口都靠 lib/session.js 拿这份 cookie + UA 走纯 HTTP，不再开浏览器。
-//
-// 两种模式：
-//   默认        开可见窗口，等扫码
-//   --import    不开窗口，直接看现有 profile 还登录着没有，登录着就静默导入（不扫码）
+// 内核只做一件事：把选项交给 provider.auth.login()，把结果讲清楚。
+// 「入口 URL 是哪个、探活端点打哪、要不要存 UA」这些平台知识都在驱动里
+// （WorkBuddy 还必须存 UA —— 服务端把会话跟 UA 逐字节绑定，改一个字符就 401）。
 const { parse, num } = require('../lib/args');
+const ui = require('../lib/ui');
+const registry = require('../lib/platform');
+const { CAP } = require('../lib/platform/contract');
 const cfg = require('../lib/config');
-const browser = require('../lib/browser');
-const session = require('../lib/session');
-const creds = require('../lib/creds');
 const { log } = require('../lib/log');
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const PROBE = '/console/as/conversations/?page=1&pageSize=1';
-
-async function grab(ctx, page) {
-  const st = await session.fromBrowser(ctx, page);
-  log('LOGIN_OK cookies=' + st.cookies.map((x) => x.name).join(',') + ' ua=' + st.ua.slice(0, 40) + '…');
-  const d = session.ttlDays(st.cookies);
-  if (d !== null) log(`凭据还能用 ${d.toFixed(1)} 天`);
-  // daemon 在跑就把新登录态推过去，否则它会一直用旧 cookie 打接口（表现为「本机好了，后台还是 401」）
-  const pushed = await creds.publishLoginState(st);
-  if (pushed.pushed) log('已同步给 daemon');
-  else if (pushed.reason && pushed.reason !== 'local-mode') log('没同步给 daemon：' + String(pushed.reason).slice(0, 80));
-  return st;
-}
+const USAGE = 'login [--import] [--max-wait <分钟>] [--cookie "<cookie 串>"]';
 
 async function run(argv) {
-  const args = parse(argv, { flags: ['import'], values: ['max-wait', 'max-min'], aliases: { m: 'max-wait' } });
-  const IMPORT = !!args.opts.import;
-  const MAX_MIN = num(args.opts['max-wait'] || args.opts['max-min'], Number(process.env.LOGIN_MAX_MIN) || 20);
+  const args = parse(argv, { flags: ['import'], values: ['max-wait', 'max-min', 'cookie'], aliases: { m: 'max-wait' } });
+  const p = registry.get();
+  if (!p.has(CAP.AUTH)) throw new Error(`本平台（${p.displayName}）没有登录态概念`);
+  if (!p.auth || typeof p.auth.login !== 'function') {
+    throw new Error(`本平台（${p.displayName}）没有实现 auth.login()`);
+  }
+
+  const ctx = registry.context(p);
+  ctx.log = (m) => log(m);
+
+  const opts = {
+    importOnly: !!args.opts.import,
+    maxWaitMin: num(args.opts['max-wait'] || args.opts['max-min'], Number(process.env.LOGIN_MAX_MIN) || 20),
+  };
+  if (args.opts.cookie) opts.cookie = String(args.opts.cookie);
 
   process.on('unhandledRejection', (e) => log('warn ' + String(e).slice(0, 160)));
   process.on('uncaughtException', (e) => log('warn ' + String(e).slice(0, 160)));
 
-  const { ctx, page } = await browser.openPage({ headless: IMPORT });
-  ctx.on('close', () => log('浏览器已关闭'));
-  if (!IMPORT) { try { await page.bringToFront(); } catch {} }
-
-  try { await page.goto(IMPORT ? cfg.AGENTS_URL : cfg.LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 45000 }); }
-  catch (e) { log('打开页面失败 ' + e.message.slice(0, 100)); }
-
-  // 先探一次：profile 里本来就有登录态的话，--import 直接收工
-  const first = await browser.api(page, PROBE).catch(() => ({ s: -1 }));
-  if (first.s === 200) {
-    log('现有 profile 已登录，直接导入');
-    await grab(ctx, page);
-    await sleep(300);
-    try { await ctx.close(); } catch {}
+  const r = await p.auth.login(ctx, opts);
+  if (r && r.ok) {
+    const bits = [];
+    if (r.user && r.user.name) bits.push('账号 ' + r.user.name);
+    if (r.cookieCount) bits.push(r.cookieCount + ' 条 cookie');
+    if (r.ttlDays != null) bits.push('还能用 ' + Number(r.ttlDays).toFixed(1) + ' 天');
+    console.log(ui.c.green('OK') + ' 已登录' + (bits.length ? '（' + bits.join(' · ') + '）' : ''));
+    console.log(ui.c.dim('登录态：' + cfg.PATHS.state + '（别手改：WorkBuddy 的 UA 是绑定的一部分）'));
     return 0;
   }
-  if (IMPORT) {
-    log(`profile 里没有有效登录态（http=${first.s}）。要扫码请跑 wbsbx login（不带 --import）`);
-    try { await ctx.close(); } catch {}
-    return 1;
-  }
-
-  log('OPENED 请扫码 / 短信登录（个人号入口 platform=agents）');
-  const deadline = Date.now() + MAX_MIN * 60 * 1000;
-  let tick = 0;
-  while (Date.now() < deadline) {
-    tick++;
-    await sleep(3000);
-    const r = await browser.api(page, PROBE).catch(() => ({ s: -1 }));
-    if (r.s === 200) {
-      await grab(ctx, page);
-      await sleep(600);
-      try { await ctx.close(); } catch {}
-      return 0;
-    }
-    if (tick % 5 === 0) log(`等待中 http=${r.s}`);
-  }
-  log('超时未登录（profile 保留，重跑 wbsbx login 即可继续）');
-  try { await ctx.close(); } catch {}
+  console.log(ui.c.yellow('未登录') + (r && r.reason ? '：' + r.reason : ''));
+  if (r && r.hint) console.log(ui.c.dim(r.hint));
   return 1;
 }
 
 module.exports = {
   run,
-  usage: 'login [--import] [--max-wait <分钟>]',
+  usage: USAGE,
   help: [
     '选项:',
     '  --import               不弹窗，从已有浏览器 profile 静默导入（已登录时有效）',
     '  -m, --max-wait <分钟>  扫码等待上限，默认 20',
+    '  --cookie "<串>"        直接粘浏览器里的 Cookie 头（不支持的平台会报错）',
     '',
     '说明:',
-    '  唯一需要浏览器的命令，其余全部走纯 HTTP。',
+    '  登录方式由驱动决定：WorkBuddy 扫码并**连同 User-Agent 一起**存（服务端把会话跟 UA 绑定，',
+    '  改一个字符就 401，所以别手改 state.json）；码道/Qoder 粘一串 cookie 就行；MiniMax 是 token。',
     '  找不到 Edge/Chromium 时用环境变量 WBSBX_BROWSER 指定可执行文件路径。',
-    '  登录时的 User-Agent 会一起存进 state.json —— 服务端把会话跟 UA 精确绑定，',
-    '  改一个字符就 401，所以别手动编辑这个文件。',
     '',
     '退出码:',
     '  0  登录成功（或导入成功）',

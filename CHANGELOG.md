@@ -3,6 +3,35 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.5.2] - 2026-11-17
+
+把剩下 5 条命令也接到平台门面上（此前只有 exec/ls/create/rm/rename/info/put/get/doctor 接了）。
+
+### 变更
+
+- `prompt` / `watch` / `history` / `login` / `cookie` 全部改走 `lib/platform`：
+  内核不再直接碰 `lib/{cloud,acp,session,browser}`。
+  - `watch`：只打印归一化事件（text/thinking/tool/tool_result/artifact/usage/question/done），
+    所以同一套输出能看 WorkBuddy 的 ACP、码道的具名 SSE、Qoder 的轮询增量。
+  - `history`：把各平台的历史形状（Event / 归一消息 / 平台原始消息）统一渲染成可读行，
+    仍落 `history-<id>.jsonl` + `.txt` 两份。
+  - `login`：通用壳 —— 选项交给 `provider.auth.login()`。WorkBuddy 的浏览器流程
+    搬进 `lib/platform/workbuddy/login-flow.js`（逻辑没变），于是命令层与驱动不再互相 require。
+    WorkBuddy 会明确拒绝 `--cookie` 导入（UA 是鉴权的一部分，缺了就 401）。
+  - `cookie`：`dump/check/export` 通用化；`check` 用「列一次实例」当探针（任何平台都要鉴权）。
+- 解耦守卫的 BASELINE 从 16 处降到 11 处（hosts 2 / imports 9）；
+  剩下的是 daemon 三条循环、doctor 的 WorkBuddy 专属检查、keepalive（WB 特有）。
+
+### 修复
+
+- **`prompt` 拿不到回复正文**：刚连上的 `session/load` 重放里带着上一轮的 `endTurn`，
+  内核 `collect()` 见第一个 `done` 就收工，于是只剩「零正文 + 一堆旧产物」。
+  - `collect()` 新增 `breakOnDone`（默认 true），`prompt` 用 `false` 按 `--wait` 计时收工；
+  - WorkBuddy 驱动的 `stream()` 默认 **不再**因为见到 `done` 就结束
+    （`stopOnEndTurn` 改为显式 opt-in）—— 重放的 endTurn 不该终止实时流；
+  - `prompt` 现在**流式**打印正文，而不是等结束才一次性输出。
+- `doctor` 的驱动体检项接受 `error/good/pass` 等 level 同义词，并让驱动覆盖同名的历史检查。
+
 ## [0.5.1] - 2026-11-17
 
 真机实测一轮（WorkBuddy + Qoder 真账号），修掉四个只有在真机上才会暴露的问题。
