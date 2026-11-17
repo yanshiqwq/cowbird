@@ -73,10 +73,10 @@ const okA = async (name, fn) => { try { await fn(); pass++; console.log('  \u271
   });
 
   console.log('\n注册表');
-  ok('内置列表包含四个真实平台 + 样例', () => {
+  ok('内置列表包含五个真实平台 + 样例', () => {
     const inv = registry.inventory();
     const ids = inv.map((x) => x.id);
-    for (const id of ['workbuddy', 'codearts', 'qoder', 'minimax', '_example']) assert.ok(ids.includes(id), '缺少 ' + id);
+    for (const id of ['workbuddy', 'codearts', 'qoder', 'minimax', 'trae', '_example']) assert.ok(ids.includes(id), '缺少 ' + id);
   });
   ok('未知平台报明确错误并列出可用项', () => {
     assert.throws(() => registry.use('nope'), (e) => /没有内置平台|加载失败/.test(e.message));
@@ -109,6 +109,21 @@ const okA = async (name, fn) => { try { await fn(); pass++; console.log('  \u271
     assert.deepStrictEqual(a.store.read('auth'), { who: 'alice' });
     b.store.write('auth', { who: 'bob' });
     assert.deepStrictEqual(a.store.read('auth'), { who: 'alice' }, 'bob 写自己的不该覆盖 alice');
+  });
+
+  ok('沙箱登记簿按渠道隔离：A 收编的会话在 B 眼里还是用户会话', () => {
+    const sandboxes = require('../lib/platform/sandboxes');
+    const p = registry.use('_example');
+    const a = registry.context(p, { account: 'alice' });
+    const b = registry.context(p, { account: 'bob' });
+    assert.strictEqual(sandboxes.kindOf(a, { id: '1001' }), 'session', '没登记过就是用户会话');
+    sandboxes.record(a, { id: '1001', name: 'example-01' }, 'adopt');
+    assert.strictEqual(sandboxes.kindOf(a, { id: '1001' }), 'sandbox');
+    assert.strictEqual(sandboxes.kindOf(b, { id: '1001' }), 'session', 'bob 不该看到 alice 收编的会话');
+    assert.ok(fs.existsSync(path.join(a.store.dir, 'sandboxes.json')), '登记表落在账号目录里');
+    assert.strictEqual(sandboxes.forget(a, '1001'), true);
+    assert.strictEqual(sandboxes.kindOf(a, { id: '1001' }), 'session');
+    assert.strictEqual(sandboxes.forget(a, '1001'), false, '重复注销是 no-op');
   });
 
   ok('账号名非法要拒绝（路径注入）', () => {

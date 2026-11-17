@@ -13,16 +13,9 @@ const channels = require('../lib/platform/channels');
 
 const USAGE = 'account [ls|use <渠道>|rm <渠道>|mv <旧> <新>]';
 
-/** 默认渠道（配置里的平台 + 该平台的默认账号） */
-function defaultChannel() {
-  const c = cfg.readConfig();
-  const id = c.platform || cfg.DEFAULT_PLATFORM;
-  return `${id}:${(c.accounts && c.accounts[id]) || accounts.DEFAULT_ALIAS}`;
-}
-
 async function listAll(args) {
   const all = channels.all();
-  const def = defaultChannel();
+  const def = channels.defaultKey();
   const rows = [];
   for (const ch of all) {
     try {

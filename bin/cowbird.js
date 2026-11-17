@@ -14,6 +14,7 @@ const COMMANDS = {
   rm: { mod: '../commands/rm', alias: ['del', 'delete'] },
   rename: { mod: '../commands/rename', alias: ['mv'] },
   exec: { mod: '../commands/exec', alias: ['run'] },
+  adopt: { mod: '../commands/adopt', alias: ['claim'] },
   put: { mod: '../commands/transfer', alias: [], pick: 0 },
   get: { mod: '../commands/transfer', alias: [], pick: 1 },
   history: { mod: '../commands/history', alias: ['log'] },
@@ -60,12 +61,13 @@ function extractGlobals(argv) {
 
 function help() {
   const cmdRows = [
-    ['ls', '实例列表'],
-    ['info', '配额详情'],
+    ['ls', '沙箱会话列表'],
     ['create', '新建实例'],
+    ['adopt', '收编已有会话'],
     ['rm', '删除/归档'],
     ['rename', '修改实例名'],
     ['exec', '在实例里跑命令'],
+    ['info', '配额详情'],
     ['put', '传入文件'],
     ['get', '取出文件'],
     ['history', '导出对话历史'],
@@ -76,7 +78,7 @@ function help() {
     ['doctor', '自检'],
     ['daemon', '常驻进程'],
     ['account', '账号与渠道'],
-    ['platform', '平台驱动'],
+    ['platform', '平台驱动与能力'],
   ];
   console.log(ui.c.bold(`cowbird ${pkg.version}`) + ui.c.dim(' · 云沙箱管理器（多平台多账号）'));
   console.log('\n' + ui.c.bold('用法') + ':  cowbird <命令> [选项] [参数]');

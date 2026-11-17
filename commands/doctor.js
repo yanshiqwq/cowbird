@@ -64,16 +64,16 @@ async function run(argv) {
   checkNode();
   checkHome();
 
-  // ---- 平台与驱动 ----
+  // ---- 默认平台（渠道是并行的，这里只说明「不带渠道时用谁」，细节看下面的渠道行）----
   const registry = require('../lib/platform');
   let provider = null;
   try {
     provider = registry.get();
     const caps = provider.capabilityList();
-    add('ok', '平台', `${provider.displayName}（${provider.id}）· ${caps.length} 项能力` +
+    add('ok', '默认平台', `${provider.displayName}（${provider.id}）· ${caps.length} 项能力` +
       (provider.has('exec') ? ` · 同步上限 ${Math.round(provider.limits.maxSyncMs / 1000)}s` : ' · 无执行通道'));
   } catch (e) {
-    add('bad', '平台', String(e.message).slice(0, 160));
+    add('bad', '默认平台', String(e.message).slice(0, 160));
   }
 
   // ---- 渠道：每个「平台:账号」一行（多账号 / 多平台同时挂时一眼看清谁还能用）----
@@ -154,7 +154,7 @@ module.exports = {
     '  --json     输出 JSON',
     '',
     '说明:',
-    '  按依赖顺序体检：node → 数据目录 → 平台 → 渠道 → 登录态 → 接口 → 实例/凭据 → daemon。',
+    '  按依赖顺序体检：node → 数据目录 → 默认平台 → 渠道 → 登录态 → 接口 → 实例/凭据 → daemon。',
     '  「渠道」一项每个「平台:账号」一行，多账号 / 多平台同时挂时一眼看清谁还能用。',
     '  某个渠道要看细节：cowbird --channel <渠道> doctor。',
     '',

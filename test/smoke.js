@@ -388,6 +388,72 @@ function frame(obj) {
     assert.strictEqual(calls.length, 0, '平台已经钉住了，不该再往历史里写');
   });
 
+  console.log('\n沙箱会话 / 用户会话');
+  const sandboxes = require('../lib/platform/sandboxes');
+  const memCtx = () => {
+    const m = new Map();
+    return { store: {
+      read: (k, d = null) => (m.has(k) ? JSON.parse(m.get(k)) : d),
+      write: (k, v) => m.set(k, JSON.stringify(v)),
+      remove: (k) => m.delete(k),
+    } };
+  };
+  ok('只有登记过的才算沙箱会话（其余是平台上的用户会话）', () => {
+    const ctx = memCtx();
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: '42' }), 'session');
+    sandboxes.record(ctx, { id: '42', name: 'sb-01' }, 'create');
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: '42' }), 'sandbox');
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: 42 }), 'sandbox', 'id 数字与字符串要当成同一个');
+    assert.strictEqual(sandboxes.get(ctx, '42').source, 'create');
+    assert.strictEqual(sandboxes.forget(ctx, '42'), true);
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: '42' }), 'session');
+  });
+  ok('登记簿超过上限只丢最旧的（它是备忘，不是审计日志）', () => {
+    const ctx = memCtx();
+    for (let i = 0; i < 2100; i++) {
+      sandboxes.record(ctx, { id: String(i) });
+      // 手工把时间往前挪，模拟"更早登记"，否则同一毫秒内排序不稳定
+      const raw = sandboxes.read(ctx);
+      raw[String(i)].at = new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString();
+      ctx.store.write(sandboxes.NAME, raw);
+    }
+    const all = sandboxes.all(ctx);
+    assert.strictEqual(all.length, 2000, '超过上限要修剪到 2000 条');
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: '2099' }), 'sandbox', '最新的要留下');
+    assert.strictEqual(sandboxes.kindOf(ctx, { id: '0' }), 'session', '最旧的被丢了');
+  });
+
+  console.log('\nplatform 命令（多渠道，没有「当前平台」）');
+  const platformCmd = require('../commands/platform');
+  ok('CAP_NAME 覆盖 contract 的每一个能力位', () => {
+    const { CAP } = require('../lib/platform/contract');
+    for (const c of Object.values(CAP)) assert.ok(platformCmd.CAP_NAME[c], '缺中文名：' + c);
+  });
+  ok('能力对照表默认不露样例驱动，--all 才露', () => {
+    const list = [
+      { id: 'workbuddy', displayName: 'WB', ok: true, version: '1.0.0', capabilities: ['instances.list', 'agent', 'exec'] },
+      { id: '_example', displayName: '样例', ok: true, version: '1.0.0', capabilities: ['instances.list', 'agent'] },
+    ];
+    const def = platformCmd.matrixRows(list, { defaultKey: 'workbuddy:default' });
+    assert.deepStrictEqual(def.rows.map((r) => r[0]), ['workbuddy']);
+    const all = platformCmd.matrixRows(list, { all: true, defaultKey: 'workbuddy:default' });
+    assert.deepStrictEqual(all.rows.map((r) => r[0]), ['workbuddy', '_example']);
+    assert.ok(!all.head.includes('当前'), '不该再有「当前平台」这一列');
+  });
+  ok('平台详情：有 exec 给同步上限，没有 exec 直说原因', () => {
+    const { defineProvider, CAP } = require('../lib/platform/contract');
+    const mk = (caps, extra) => defineProvider({
+      id: 'probe', displayName: '探针', capabilities: caps,
+      instances: { list() {} }, agent: { stream() {}, send() {} }, ...extra,
+    });
+    const yes = mk([CAP.LIST, CAP.AGENT, CAP.EXEC], { exec: { probe() {}, run() {} }, limits: { maxSyncMs: 30000, defaultSyncMs: 10000 } });
+    const no = mk([CAP.LIST, CAP.AGENT]);
+    const text = (p) => platformCmd.detailRows(p, [], { defaultKey: 'probe:default' }).map((r) => r.join(' ')).join('\n');
+    assert.match(text(yes), /同步上限 30s \/ 默认 10s/);
+    assert.match(text(no), /没有执行通道/);
+    assert.match(text(no), /退出码 2/, '要说清 exec 会怎么失败');
+  });
+
   // 收尾
   try { fs.rmSync(TMP, { recursive: true, force: true }); } catch {}
   console.log(`\n${fail ? '\u2717' : '\u2713'} ${pass} 通过${fail ? '，' + fail + ' 失败' : ''}\n`);

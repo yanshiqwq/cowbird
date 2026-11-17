@@ -6,6 +6,7 @@ const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
 const { CAP } = require('../lib/platform/contract');
 const channels = require('../lib/platform/channels');
+const sandboxes = require('../lib/platform/sandboxes');
 const log = require('../lib/log').log;
 
 async function run(argv) {
@@ -28,12 +29,15 @@ async function run(argv) {
   const prompt = args.opts.prompt || (p.requiresPromptOnCreate ? (ctx.effective.prompt || '你好，先不要做任何事，等我指令。') : null);
 
   const inst = await p.instances.create(ctx, { name, model, prompt }, { log });
+  // 建出来就登记成沙箱会话：ls 默认只列登记过的（见 lib/platform/sandboxes.js）
+  sandboxes.record(ctx, inst, 'create');
   if (args.opts.json) { console.log(JSON.stringify(inst, null, 2)); return 0; }
 
   console.log(ui.c.green('OK') + ` 实例 ${ui.c.bold(name)}  id=${inst.id}`);
   console.log(`  渠道     ${ctx.channel}`);
   console.log(`  状态     ${ui.statusBadge(inst.status)}`);
   if (inst.extra && inst.extra.sessionStatus) console.log(`  会话     ${ui.statusBadge(inst.extra.sessionStatus)}`);
+  console.log(`  类型     沙箱会话${ui.c.dim('（已登记，cowbird ls 会列出来）')}`);
 
   console.log(ui.c.dim('\n下一步：'));
   if (p.has(CAP.EXEC)) console.log(ui.c.dim(`  cowbird exec ${name} "nproc"           # 直连执行`));
@@ -54,6 +58,8 @@ module.exports = {
     '说明:',
     '  一个实例 = 一个会话 + 一个沙箱。不同平台的创建细节（要不要二次改名、prompt 长度限制）',
     '  由驱动处理，命令层不关心。',
+    '  建出来的会话会自动登记成沙箱会话（cowbird ls 默认只列这个）；平台上已经存在的',
+    '  会话想纳进来用 cowbird adopt。',
     '  建好之后建议立刻 `cowbird exec <名字> "true"` 把沙箱拉起来，或用 `cowbird daemon targets add`。',
   ],
 };

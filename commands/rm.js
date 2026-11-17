@@ -4,6 +4,7 @@ const { parse, need } = require('../lib/args');
 const ui = require('../lib/ui');
 const { CAP } = require('../lib/platform/contract');
 const { pickTarget } = require('../lib/platform/target');
+const sandboxes = require('../lib/platform/sandboxes');
 const log = require('../lib/log').log;
 
 async function run(argv) {
@@ -14,6 +15,7 @@ async function run(argv) {
   const p = ctx.provider;
   if (!p.has(CAP.REMOVE)) throw new Error(`本平台（${p.displayName}）不支持删除实例`);
   const action = args.opts.archive ? '归档' : '删除';
+  const kind = sandboxes.kindOf(ctx, inst);
 
   if (!args.opts.yes) {
     console.log(ui.c.yellow('DRY-RUN') + `  将${action}实例：`);
@@ -21,6 +23,10 @@ async function run(argv) {
     console.log(`  名字 ${inst.name || ui.c.dim('(未命名)')}`);
     console.log(`  渠道 ${ctx.channel}`);
     console.log(`  状态 ${ui.statusBadge(inst.status)}`);
+    console.log(`  类型 ${kind === 'sandbox' ? '沙箱会话' : ui.c.yellow('用户会话') + ui.c.dim('（不是本工具建的）')}`);
+    if (kind !== 'sandbox') {
+      console.log(ui.c.yellow('  ⚠ 这是平台上的对话本身，删掉会连同它的聊天记录一起没'));
+    }
     if (inst.status === 'working' || inst.status === 'running') {
       console.log(ui.c.red('  ⚠ 这个实例正在干活，删了会把正在跑的任务一起干掉'));
     }
@@ -29,6 +35,7 @@ async function run(argv) {
   }
 
   await p.instances.remove(ctx, inst.id, { archive: !!args.opts.archive });
+  sandboxes.forget(ctx, inst.id);                 // 登记簿跟着清掉，别留一个不存在的 id
   if (args.opts.json) console.log(JSON.stringify({ ok: true, id: inst.id, action }));
   else log(`已${action} ${inst.name || inst.id}`);
   return 0;

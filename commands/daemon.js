@@ -9,6 +9,7 @@ const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const api = require('../lib/api');
 const { pickTarget } = require('../lib/platform/target');
+const sandboxes = require('../lib/platform/sandboxes');
 
 const DAEMON_JS = path.join(__dirname, '..', 'bin', 'cowbird-daemon.js');
 
@@ -189,6 +190,8 @@ async function targets(argv) {
       if (!rest.length) throw new Error('用法: cowbird daemon targets add <实例...>');
       for (const ref of rest) {
         const { inst, ctx } = await pickTarget(ref);
+        // 保活目标必然是沙箱：顺手登记，免得 ls 里看不到一个正在被保活的实例
+        sandboxes.record(ctx, inst, 'keepalive');
         if (list.some((t) => String(t.id) === inst.id)) continue;
         // 渠道写死在目标上：以后换了默认账号，这个目标仍然跟着原来那个账号走
         list.push({ id: inst.id, name: inst.name || '', channel: ctx.channel });
