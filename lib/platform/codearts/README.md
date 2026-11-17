@@ -143,7 +143,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 
 ```bash
 npm i playwright-core            # 可选依赖；没有就用 B 方案
-cowbird login --platform codearts  # 打开登录页（账号密码/短信）；登进去后自动抓 cookie 存盘
+cowbird --platform codearts login  # 打开登录页（账号密码/短信）；登进去后自动抓 cookie 存盘
 ```
 
 `login` 用的是**一次性上下文**（不是 WorkBuddy 那种持久 profile）：本平台不绑 UA，也不需要留浏览器痕迹。
@@ -157,7 +157,7 @@ document.cookie   // 复制整串（注意 HttpOnly 的 J 那一条在 Applicati
 ```
 
 ```bash
-cowbird login --platform codearts --cookie 'devclouddevuibjJ_SESSION_ID=…; devclouddevuibjtcftk=…; devclouddevuibjagencyID=…'
+cowbird --platform codearts login --cookie 'devclouddevuibjJ_SESSION_ID=…; devclouddevuibjtcftk=…; devclouddevuibjagencyID=…'
 ```
 
 驱动只保留 `huaweicloud.com` 域的 cookie，并校验 `devclouddevuibjJ_SESSION_ID` 必须在。
@@ -325,8 +325,8 @@ export NODE_TLS_REJECT_UNAUTHORIZED=0        # ← 全局关 TLS 校验，写死
 ### 4.2 逐条验证（每条都能判真假）
 
 ```bash
-cowbird doctor --platform codearts          # 登录态 / GET /rest/me / 会话列表 / 浏览器
-cowbird ls --platform codearts              # 列表；注意 total 与页大小
+cowbird --platform codearts doctor          # 登录态 / GET /rest/me / 会话列表 / 浏览器
+cowbird --platform codearts ls              # 列表；注意 total 与页大小
 cowbird ls --platform codearts --refresh
 ```
 

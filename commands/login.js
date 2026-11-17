@@ -188,7 +188,7 @@ async function run(argv) {
       restore(ch, bak);
       console.log(ui.c.yellow('这次授权的是另一个账号：') + `${r.label || r.identity}`);
       console.log(ui.c.dim(`账号 ${ch.key} 原本是 ${prev.nickname || prevId}，已还原，没有覆盖。`));
-      console.log(ui.c.dim(`要让它和原来的账号共存：cowbird login --as <名字>` + (ch.platform === cfg.DEFAULT_PLATFORM ? '' : ` --platform ${ch.platform}`)));
+      console.log(ui.c.dim(`要让它和原来的账号共存：cowbird ${ch.platform === cfg.DEFAULT_PLATFORM ? '' : '--platform ' + ch.platform + ' '}login --as <名字>`));
       return 1;
     }
     console.log(ui.c.yellow(`注意：账号 ${ch.key} 从 ${prev.nickname || prevId} 换成了 ${r.label || r.identity}`));
@@ -222,6 +222,7 @@ module.exports = {
     '说明:',
     '  打印一个链接，在微信/浏览器里打开并授权，这边自动收到登录态。',
     '  加第二个账号：cowbird login --as 别名。不加 --as 时若授权的是别的账号，会还原原凭据并提示。',
+    '  --platform 是全局开关（写在 login 之前）：cowbird --platform codearts login',
     '  码道的 --oauth 走「本地回调 + 轮询 ticket」两条腿，够不着时用 --callback 手动补。',
     '  想看现有账号：cowbird account ls。',
     '',

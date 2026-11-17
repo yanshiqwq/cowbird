@@ -56,6 +56,11 @@ module.exports = defineProvider({
 
 **必需**：`instances.list` 与 `agent`。**声明了能力就必须有对应方法**，否则 `defineProvider` 直接抛错（这一步能挡掉大半手误）。
 
+`instances.list()` 每项除 `{id, name, status, updatedAt, archived}` 外，可再给一个可选的
+**`hasSandbox`**：`true` = 这个会话有沙箱；`false` = 明确没有（例如码道网页端随手开的对话，
+`agent_session_id` 为空）；**省略 = 平台不区分**。`cowbird ls` 默认会藏掉 `hasSandbox === false`
+的行（`--all` 才显示，并多一列「沙箱」），所以拿不准就别填 —— 宁可多列，也别把列表弄空。
+
 **`ctx` 里有什么**（驱动只从这里拿内核能力，别 `require('../../config')`）：
 
 | 字段 | 说明 |

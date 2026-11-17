@@ -83,7 +83,11 @@ async function run(argv) {
     if (!spec) throw new Error('用法: cowbird account use <平台[:账号]>');
     const ch = channels.get(spec);                    // 先验证能加载
     if (!ch.hasCred) {
-      throw new Error(`账号「${ch.key}」还没有登录态。先跑：cowbird login --as ${ch.account}` + (ch.platform === cfg.DEFAULT_PLATFORM ? '' : ` --platform ${ch.platform}`));
+      // --platform 是全局开关，写在命令名前面（写后面会被当成未知选项）
+      const cmd = ch.platform === cfg.DEFAULT_PLATFORM
+        ? `cowbird login --as ${ch.account}`
+        : `cowbird --platform ${ch.platform} login --as ${ch.account}`;
+      throw new Error(`账号「${ch.key}」还没有登录态。先跑：${cmd}`);
     }
     cfg.writeConfig({ platform: ch.platform, accounts: { [ch.platform]: ch.account } });
     console.log(ui.c.green('默认渠道已切换为 ') + ch.key + ui.c.dim(`（${ch.provider.displayName}）`));
