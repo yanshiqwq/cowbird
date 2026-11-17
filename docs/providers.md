@@ -98,7 +98,7 @@ limits: { maxSyncMs: 28000,   // 平台硬顶（码道 30s → 留 2s 余量）
 
 ### 3. 网络与签名全归 provider
 
-内核连 `fetch` 都不出现。cookie 合并、UA 绑定、CSRF 头、JWT 签名、token 轮换一律在 `transport.js` 里。四个真实例子：
+内核连 `fetch` 都不出现。Bearer/CSRF 头/JWT 签名/token 轮换一律在驱动的 transport 里。四个真实例子：
 
 | 平台 | 鉴权要点 | 坑 |
 |---|---|---|
