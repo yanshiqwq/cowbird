@@ -3,6 +3,36 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.16.0] - 2026-11-18
+
+**TRAE 打通 `prompt` 与 `exec`：发消息就是 HTTP，exec 交给沙箱里的 agent。**
+
+之前这个驱动只有只读能力，`prompt` 会报"网页端走 protobuf WS"。那个判断是错的：前端 API 表里
+`chat.sendMessage` 就是 `POST /api/remote/v1/chat_sessions/:id/messages`，一直吃 `991102`
+是因为**把 body 包错了**（多了 `initial_message` 外壳）。真实 body 是前端
+`buildSendMessageRequest()` 的**摊平**对象：顶层 `chat_session_id` + `content: []` +
+`query`（JSON 字符串）+ 模型那几个字段。
+
+### 新增
+
+- **`prompt`（`agent.send`）可用**：发消息、追加一轮，都是普通 HTTP。
+- **`exec` 可用**（由 agent 代执行）：发一条消息让它跑、等这一轮结束、取最后一条 `Shell` 的 stdout。
+  一条命令一轮 LLM，约 10–25 秒 —— 平台没有直连 shell 端点，这是它真实的能力边界。
+  agent 拒绝执行时抛 `E_AGENT_REFUSED`，并带上它的原话，不编一个"失败"。
+- **`create` 修正**：建会话带 `mode:"code"` + `env:"remote"`（少这两个建出来的是没沙箱的死会话）；
+  带 `prompt` 就顺手跑第一轮。冷会话也能被第一条消息唤醒（实测 `status 1→3→5`，沙箱自动分配）。
+- 模型的 `custom_model` / `common_params` 抽到 `lib/platform/trae/model.js`，
+  可用 `cowbird.json` 的 `platforms.trae.model` 覆盖。
+
+### 已知边界
+
+- 没有 `exec.background`：一条命令一个回合，没有后台任务通道。
+- **没有直连执行通道**。"往插件 `.mcp.json` 挂执行端、之后外部直连 9003 调 `tools/call`"这条路
+  实测可行（0.3–1.2 秒一条、不烧额度），但需要沙箱内的 agent 写宿主配置，agent 判定为
+  "绕开审批的常驻远程执行通道"并拒绝。原理与实测记录见 `docs/TRAE-一次性铺路执行通道.md`。
+- 官方其实有 `/api/remote/v1/mcp_configs`（支持 `type:"stdio"` + `command/args`），
+  但 create 的 body schema 在发版包里找不到，6 种形状都 `991102`；等摸到再换直连。
+
 ## [0.15.0] - 2026-11-18
 
 **分清「沙箱会话」与「用户会话」；`platform` 命令对齐多渠道 —— 不再有「当前平台」。**

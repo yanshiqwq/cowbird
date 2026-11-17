@@ -1,7 +1,8 @@
 # trae —— 字节 TRAE（work.trae.cn）驱动
 
-> 调查时间 2026-11-17。结论：**一个会话 = 一台云端 KVM 真 VM**，但网页版**没有直连执行通道**。
-> 本驱动因此不声明 `exec` / `fs`（`cowbird exec` 会直接报能力缺失，退出码 2）。
+> 调查时间 2026-11-17，2026-11-18 大修。结论：**一个会话 = 一台云端 KVM 真 VM**。
+> 网页版**没有直连 shell 端点**，所以 `exec` 由沙箱里的 agent 代执行（一条命令一轮，约 10–25 秒）；
+> `fs` 走数据面直连；`prompt` 就是普通 HTTP —— 之前一直吃 `991102` 是自己把 body 包错了，不是协议不通。
 
 ## 1. 平台形态（实测）
 
@@ -81,19 +82,26 @@ data.items[] = { message_id, role, message_type, message_index, content, token_u
   cowbird --platform trae get <会话> src/index.js        # 读工作区文件
   cowbird --platform trae put <会话> ./local.js src/x.js # 写回工作区
   ```
-- ❌ **`exec` / `fs`**：网页版 156 条端点里没有 terminal/pty/shell/exec。沙箱里的真 shell 只有
-  三个入口：agent 的 `Shell` 工具（走模型回合）、VNC 桌面（`wss://<sandbox>…/websockify`）、
-  IDE/文件通道（`/explorer/<sid>` WS）。数据面鉴权还差一个头，见下。
-- ❌ **`agent.send`（`prompt`）走不了 HTTP**：网页端发消息不是 `POST /messages`，而是
-  `wss://frontier.zijieapi.com/ws/v2?…&Authorization=Cloud-IDE-JWT%20<jwt>&productCode=solo_web`
-  上的**二进制 protobuf 双向流**（opcode=2，帧里有 `x_frontier_*` 字段）。HTTP 的
-  `POST /chat_sessions/:sid/messages` 是给 lite/IDE/IM 客户端用的，body 有严格 schema，
-  连「回读出来的 user message 镜像字段」都被 `991102 invalid parameter` 打回。
-  ⇒ 要做 `prompt` 得实现 protobuf WS，不在本期范围；驱动会明确报这条未打通。
+- ✅ **`exec`（由 agent 代执行）**：发一条消息让它跑、等这一轮结束、取最后一条 `Shell` 的 stdout。
+  网页版 156 条端点里确实没有 terminal/pty/shell，沙箱里的真 shell 只有三个入口：
+  agent 的 `Shell` 工具（走模型回合）、VNC 桌面、IDE/文件通道。
+  一条命令一轮 LLM、约 10–25 秒 —— 这是这个平台真实的能力边界，不是没做完。
+
+  > 另一条"往插件 `.mcp.json` 挂一个自己的执行端、之后外部直连 9003 调 `tools/call`"的路
+  > **实测可行**（0.3–1.2 秒一条、不烧额度），但它需要沙箱内的 agent 去写宿主配置，
+  > agent 判定为"绕开审批的常驻远程执行通道"并拒绝执行。这个判断是对的，因此不采用；
+  > 完整原理与实测记录在 `docs/TRAE-一次性铺路执行通道.md`，留给平台自己开放 MCP 配置时再捡。
+- ✅ **`agent.send`（`prompt`）就是 HTTP**：`POST /api/remote/v1/chat_sessions/:id/messages`，
+  body 是前端 `ChatSessionService.buildSendMessageRequest()` 返回的**摊平**对象：
+  顶层 `chat_session_id` + `content: []` + `query`（JSON 字符串）+ 模型字段
+  （`model_name` / `agent_type` / `agent_id` / `model_selection_strategy` / `custom_model` / `common_params`）。
+  **没有 `initial_message` 外壳** —— 多包一层就是那个 `991102 invalid parameter`。
+  建会话（`POST /chat_sessions`）用的是同一坨字段，只是套在 `initial_message` 里，
+  另加 `mode:"code"` + `env:"remote"`（少这两个，建出来的会话没有沙箱、没有工具）。
 - ⚠️ **事件流是轮询**：官方 `subscribe` 是带 heartbeat 的 SSE，但帧格式未摸；先用
   `messages` 做 diff（语义等价：新消息 → 归一事件 → 完成时 `done`）。
 
-## 5. 数据面：鉴权已破解（`exec` 仍然没有）
+## 5. 数据面：鉴权已破解
 
 **要什么**（2026-11-18 实测，别再用 Bearer 试了）：
 
