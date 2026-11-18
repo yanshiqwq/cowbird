@@ -1,0 +1,5 @@
+# 驱动自测与内核测试不发布进 npm 包：
+# 它们是仓库内的回归护栏（npm test 会跑），不是运行时依赖。
+# 注意：package.json 的 "files" 是白名单，这里的排除只对它已经包含的路径生效。
+lib/platform/*/selftest.js
+test/
