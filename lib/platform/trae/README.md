@@ -140,7 +140,7 @@ X-Trae-Client-Type: web
 ③ VNC（`wss://<sandbox>.…/websockify`）是 RFB 像素协议，不是命令行。
 ⇒ 沙箱里跑命令的唯一入口仍是 agent 的 `Shell` 工具（走模型回合、消耗额度）。
 
-**`fs` 已落地**（`fs.list` = WS `fs.readdir`，`fs.read`/`fs.write` = `/file/:path` 的 GET/PUT）。
+**`fs` 已落地**（`fs.list` = WS `fs.readdir`，`fs.read`/`fs.write` = `/file/:path` 的 GET/PUT）。`fs.write` 支持 `{encoding:'base64'}`，因此声明了 `fs.binary`（2026-11-18 起二进制无损）；路径里的 `..` 会被本地拒绝，不把"能不能穿出工作区"交给网关判断。
 三条限制必须知道：
 
 1. 路径是**工作区相对路径**（git 树的路径），`/etc/hostname` 这种绝对路径读不到；
@@ -151,7 +151,7 @@ X-Trae-Client-Type: web
 ## 6. 自测
 
 ```bash
-node lib/platform/trae/selftest.js     # 42 项，全离线（假传输）
+node lib/platform/trae/selftest.js     # 42 项，全离线（假传输）；实现已迁到 test/drivers/trae.js
 ```
 
 覆盖：cookie 解析、登录指引与校验、status 映射、会话归一、消息 → 归一事件（含非零退出码）、
