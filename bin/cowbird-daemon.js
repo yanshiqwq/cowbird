@@ -1,17 +1,15 @@
 #!/usr/bin/env node
-// cowbird-daemon —— 常驻侧：维护登录态、续 token、给实例保活，并把凭据通过 HTTP 发给客户端。
+// cowbird-daemon —— 常驻侧：维护登录态、续 token、给实例保活，并把状态经 HTTP 报给客户端。
 //
 // 它自己不提供任何「操作实例」的能力，只做三件长期没人做就会断的事：
 //   ① 定期 exec 一下目标实例（这就是「保活」，平台看到访问才不会回收）
 //   ② 在 token 到期前刷新（纯 HTTP，很便宜）
-//   ③ cookie 快满 7 天时走 SSO 静默续期（需要浏览器，可选）
+//   ③ 登录态快过期时续（有 refresh_token 的平台自动续；其余靠重新登录）
 //
 // 跑法：
 //   cowbird-daemon                       前台跑，Ctrl-C 停
 //   cowbird daemon start --detach        后台起（CLI 帮你拉起）
 //   docker run -v ./data:/data ...     见仓库里的 Dockerfile
-process.env.COWBIRD_LOCAL = '1';        // ★ 必须最先设：daemon 永远读本地凭据，不去请求自己
-
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -41,7 +39,8 @@ function ensureToken(explicit) {
   const c = cfg.readConfig();
   if (c.daemon.token) return c.daemon.token;
   const t = crypto.randomBytes(24).toString('hex');
-  cfg.writeConfig({ daemon: { token: t } });
+  cfg.writeConfig({ daemon: { token: t } });   // 写失败会抛：别带着"没有令牌"启动
+  console.error('[cowbird-daemon] 首次启动：已生成访问令牌并写入配置（远端客户端要用同一个）');
   return t;
 }
 
@@ -65,12 +64,10 @@ async function main() {
 接口:
   GET  /health            健康检查（无鉴权）
   GET  /api/status        状态 + 最近各轮结果
-  GET  /api/state         登录态（cookie + UA）
-  PUT  /api/state         推入新登录态（供另一台机器 login 后同步）
-  GET  /api/token/:id     E2B 访问凭据
   POST /api/heal          立即保活一轮
   POST /api/refresh       立即刷 token
   POST /api/renew         立即续登录态
+  POST /api/warm          立即做一次登录态保活
   PUT  /api/targets       设置保活目标
   GET  /api/logs          最近日志`);
     return 0;
@@ -81,10 +78,9 @@ async function main() {
   const host = args.host || c.http.host || '127.0.0.1';
   const port = args.port || c.http.port || 8787;
   const token = ensureToken(args.token);
-
-  // 监听公网却没令牌 = 把整份登录态挂在门口。宁可不启动。
   if (!isLoopbackHost(host) && !token) {
-    console.error('拒绝启动：监听 ' + host + ' 时必须配置令牌（--token 或 cowbird.json 的 daemon.token）');
+    // ensureToken 一定会给出令牌；这里只是兜底（写配置失败时会在上面直接抛）
+    console.error('拒绝启动：监听 ' + host + ' 时必须能生成/读到访问令牌');
     return 2;
   }
 
@@ -95,9 +91,6 @@ async function main() {
   };
 
   log(`cowbird-daemon ${VERSION} 启动 · ${host}:${port} · 数据目录 ${cfg.HOME}`);
-  if (cfg.HOME_INFO.source === 'legacy ~/.workbuddy/wb-cloud') {
-    log('沿用旧数据目录（~/.workbuddy/wb-cloud）。想换到 ~/.cowbird 就把 state.json 和 tokens/ 拷过去');
-  }
 
   const scheduler = new Scheduler({ log });
   const server = createServer({ scheduler, log, logstore, token });

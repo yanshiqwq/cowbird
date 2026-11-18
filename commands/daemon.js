@@ -4,12 +4,14 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
-const { parse, need } = require('../lib/args');
+const { need } = require('../lib/args');
+const { defineGroup } = require('../lib/command');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const api = require('../lib/api');
 const { pickTarget } = require('../lib/platform/target');
-const sandboxes = require('../lib/platform/sandboxes');
+const targetsLib = require('../lib/daemon/targets');
+const service = require('../lib/daemon/service');
 
 const DAEMON_JS = path.join(__dirname, '..', 'bin', 'cowbird-daemon.js');
 
@@ -22,11 +24,10 @@ function runningPid() {
   } catch { return null; }
 }
 
-function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+const { sleep } = require('../lib/platform/util');
 
 // ---------- start ----------
-async function start(argv) {
-  const args = parse(argv, { flags: ['detach', 'quiet'], values: ['port', 'host'] });
+async function start(args) {
   const pid = runningPid();
   if (pid) { console.log(ui.c.yellow(`daemon 已在跑（pid ${pid}）`)); return 0; }
 
@@ -43,12 +44,21 @@ async function start(argv) {
   });
   child.unref();
 
-  // 等它真的开始服务，而不是打印完 pid 就走
+  // 等它真的开始服务，而不是打印完 pid 就走。
+  // 注意探的地址要跟子进程实际监听的一致（早先用配置里的 daemon.url，`--port 9999` 会探错端口）。
   const c = cfg.readConfig();
-  const url = c.daemon.url;
-  for (let i = 0; i < 25; i++) {
+  const host = args.opts.host || c.http.host || '127.0.0.1';
+  const port = Number(args.opts.port) || c.http.port || 8787;
+  const url = `http://${host}:${port}`;
+  const client = new api.DaemonClient({ url });
+  let up = false;
+  for (let i = 0; i < 25 && !up; i++) {
     await sleep(200);
-    try { await new api.DaemonClient({ url }).probe(); break; } catch {}
+    try { await client.probe(); up = true; } catch { /* 还没起来 */ }
+  }
+  if (!up) {
+    console.error(ui.c.red('daemon 没起来') + ui.c.dim(`（探测 ${url} 失败，看 ${path.join(cfg.PATHS.logs, 'daemon.out')}）`));
+    return 1;
   }
   console.log(ui.c.green('daemon 已启动') + ui.c.dim(`  pid ${child.pid} · ${url}`));
   console.log(ui.c.dim(`日志：${path.join(cfg.PATHS.logs, 'daemon.log')}`));
@@ -70,8 +80,7 @@ async function stop() {
 }
 
 // ---------- status ----------
-async function status(argv) {
-  const args = parse(argv, { flags: ['json'] });
+async function status(args) {
   let st = null, err = null;
   try { st = await new api.DaemonClient().status(); } catch (e) { err = e; }
 
@@ -138,94 +147,101 @@ async function status(argv) {
 }
 
 // ---------- logs ----------
-function logs(argv) {
-  const args = parse(argv, { flags: ['follow'], values: ['n'], aliases: { f: 'follow' } });
-  const n = Number(args.opts.n || 50);
+/** 只读文件尾部（daemon.log 上限 8 MiB，但没必要为了 50 行把它整份读进内存） */
+function readTailLines(file, n) {
+  const st = fs.statSync(file);
+  const start = Math.max(0, st.size - 64 * 1024);
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(st.size - start);
+    if (buf.length) fs.readSync(fd, buf, 0, buf.length, start);
+    return buf.toString('utf8').trimEnd().split('\n').slice(-n);
+  } finally {
+    fs.closeSync(fd);                     // 抛错也要关，别漏 fd
+  }
+}
+
+function logs(args) {
+  const n = Math.max(1, Number(args.opts.n) || 50);
   const file = path.join(cfg.PATHS.logs, 'daemon.log');
-  let lines = [];
-  try { lines = fs.readFileSync(file, 'utf8').trimEnd().split('\n'); } catch {
+  let lines;
+  try { lines = readTailLines(file, n); } catch {
     console.log(ui.c.dim('还没有日志：' + file));
     return 0;
   }
-  console.log(lines.slice(-n).join('\n'));
+  console.log(lines.join('\n'));
+  if (!args.opts.follow) return 0;
 
-  if (args.opts.follow) {
-    let size = fs.statSync(file).size;
-    process.stdout.write(ui.c.dim('\n--- 跟踪中（Ctrl-C 退出）---\n'));
-    fs.watchFile(file, { interval: 800 }, (cur) => {
-      if (cur.size <= size) { size = cur.size; return; }
+  let size = fs.statSync(file).size;
+  process.stdout.write(ui.c.dim('\n--- 跟踪中（Ctrl-C 退出）---\n'));
+  const watcher = fs.watch(file, () => {
+    let cur;
+    try { cur = fs.statSync(file); } catch { return; }        // 轮转期间可能短暂不存在
+    if (cur.size <= size) { size = cur.size; return; }
+    const fd = fs.openSync(file, 'r');
+    try {
       const buf = Buffer.alloc(cur.size - size);
-      const fd = fs.openSync(file, 'r');
       fs.readSync(fd, buf, 0, buf.length, size);
-      fs.closeSync(fd);
-      size = cur.size;
       process.stdout.write(buf.toString('utf8'));
-    });
-    return new Promise(() => {});
-  }
-  return 0;
+      size = cur.size;
+    } finally {
+      fs.closeSync(fd);
+    }
+  });
+  process.once('SIGINT', () => { try { watcher.close(); } catch { /* 已关 */ } process.exit(130); });
+  return new Promise(() => {});          // 常驻直到 Ctrl-C
 }
 
 // ---------- targets ----------
-async function targets(argv) {
-  const args = parse(argv, { flags: ['json'] });
+async function targets(args) {
   const [action, ...rest] = args._;
   const client = new api.DaemonClient();
 
-  const current = async () => {
-    try { return (await client.status()).targets; } catch { return cfg.readConfig().heal.targets || []; }
-  };
-
   if (!action || action === 'ls' || action === 'list') {
-    const list = await current();
+    const list = await targetsLib.current(client);
     if (args.opts.json) { console.log(JSON.stringify(list, null, 2)); return 0; }
     if (!list.length) { console.log(ui.c.dim('没有保活目标。加一个：cowbird daemon targets add 01')); return 0; }
     console.log(ui.table(['ID', '名字', '渠道'], list.map((t) => [t.id, t.name || '-', t.channel || ui.c.dim('（默认）')])));
     return 0;
   }
 
-  if (action === 'add' || action === 'rm' || action === 'remove') {
-    let list = await current();
-    if (action === 'add') {
-      if (!rest.length) throw new Error('用法: cowbird daemon targets add <实例...>');
-      for (const ref of rest) {
-        const { inst, ctx } = await pickTarget(ref);
-        // 保活目标必然是沙箱：顺手登记，免得 ls 里看不到一个正在被保活的实例
-        sandboxes.record(ctx, inst, 'keepalive');
-        if (list.some((t) => String(t.id) === inst.id)) continue;
-        // 渠道写死在目标上：以后换了默认账号，这个目标仍然跟着原来那个账号走
-        list.push({ id: inst.id, name: inst.name || '', channel: ctx.channel });
-      }
-    } else {
-      if (!rest.length) throw new Error('用法: cowbird daemon targets rm <实例...>');
-      const ids = [];
-      for (const ref of rest) {
-        try { ids.push((await pickTarget(ref)).inst.id); } catch { if (/^\d+$/.test(ref)) ids.push(ref); }
-      }
-      list = list.filter((t) => !ids.includes(String(t.id)));
+  if (action === 'add') {
+    if (!rest.length) throw new Error('用法: cowbird daemon targets add <实例...>');
+    const { list, added, skipped } = await targetsLib.add(rest, client);
+    const saved = await targetsLib.save(list, client);
+    console.log(ui.c.green('已更新') + ui.c.dim(`（${list.length} 个目标）` +
+      (added.length ? ` · 新增 ${added.length}` : '') + (skipped.length ? ` · 已在表里 ${skipped.length}` : '')));
+    if (saved.via === 'config') console.log(ui.c.yellow('daemon 没在跑，已写进配置（下次启动生效）'));
+    return 0;
+  }
+
+  if (action === 'rm' || action === 'remove') {
+    if (!rest.length) throw new Error('用法: cowbird daemon targets rm <实例...>');
+    const { list, failed } = await targetsLib.remove(rest, client);
+    if (failed.length) {
+      console.error(ui.c.red('这些引用没解析到实例：') + '\n  ' + failed.join('\n  '));
+      return 1;
     }
-    try {
-      await client.setTargets(list);
-      console.log(ui.c.green('已更新') + ui.c.dim(`（${list.length} 个目标）`));
-    } catch (e) {
-      // daemon 没跑就直接改配置，下次启动生效
-      cfg.writeConfig({ heal: { targets: list } });
-      console.log(ui.c.yellow('daemon 没在跑，已写进配置（下次启动生效）'));
-    }
+    const saved = await targetsLib.save(list, client);
+    console.log(ui.c.green('已更新') + ui.c.dim(`（${list.length} 个目标）`));
+    if (saved.via === 'config') console.log(ui.c.yellow('daemon 没在跑，已写进配置（下次启动生效）'));
     return 0;
   }
 
   throw new Error('用法: cowbird daemon targets [ls|add|rm] [实例...]');
 }
-
 // ---------- pair ----------
-function pair(argv) {
-  const args = parse(argv, { values: ['token'], aliases: { t: 'token' } });
+function pair(args) {
   const [url] = need(args, 1, 'daemon pair <http://主机:端口> [--token <令牌>]');
   if (!/^https?:\/\//.test(url)) throw new Error('地址要带协议，例如 http://10.0.0.5:8787');
-  cfg.writeConfig({ daemon: { url: url.replace(/\/+$/, ''), token: args.opts.token || '' } });
+  const patch = { daemon: { url: url.replace(/\/+$/, '') } };
+  // 只改地址时**不许**把已有令牌冲成空串（那会让所有请求 401，而提示是写完才打印的）
+  const hadToken = Boolean(cfg.readConfig().daemon.token);
+  if (args.opts.token !== undefined) patch.daemon.token = String(args.opts.token);
+  cfg.writeConfig(patch);
   console.log(ui.c.green('已指向') + ' ' + url);
-  if (!args.opts.token) console.log(ui.c.yellow('没给令牌 —— 如果对面不是本机，请求会被拒（403/401）'));
+  if (!args.opts.token && !hadToken) console.log(ui.c.yellow('没给令牌 —— 如果对面不是本机，请求会被拒（403/401）'));
+  else if (!args.opts.token) console.log(ui.c.dim('令牌保持不变'));
   return 0;
 }
 
@@ -245,106 +261,102 @@ async function trigger(which) {
 
 // ---------- install ----------
 // 只打印，不擅自改系统。加 --write 才落文件。
-function install(argv) {
-  const args = parse(argv, { flags: ['write'] });
-  const node = process.execPath;
-  const script = DAEMON_JS;
+function install(args) {
+  const plan = service.plan(process.platform);
 
-  if (process.platform === 'linux') {
-    const unit = `[Unit]
-Description=cowbird daemon (WorkBuddy sandbox keep-alive)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=${node} ${script}
-Restart=always
-RestartSec=10
-Environment=COWBIRD_HOME=${cfg.HOME}
-# 需要用浏览器续期时把 HOME 设成有凭据的用户
-# User=youruser
-
-[Install]
-WantedBy=multi-user.target
-`;
+  if (plan.platform === 'linux') {
     if (args.opts.write) {
-      const p = '/etc/systemd/system/cowbird-daemon.service';
-      try { fs.writeFileSync(p, unit); console.log(ui.c.green('已写入 ') + p); }
-      catch (e) { console.log(ui.c.red('写不了 ' + p + '（要 root）：' + e.message)); return 1; }
-      console.log(ui.c.dim('sudo systemctl daemon-reload && sudo systemctl enable --now cowbird-daemon'));
+      try { service.write(plan); console.log(ui.c.green('已写入 ') + plan.path); }
+      catch (e) { console.log(ui.c.red('写不了 ' + plan.path + '（要 root）：' + e.message)); return 1; }
+      console.log(ui.c.dim(plan.hint));
       return 0;
     }
-    console.log(ui.c.bold('把下面存成 /etc/systemd/system/cowbird-daemon.service：\n'));
-    console.log(unit);
-    console.log(ui.c.dim('然后：sudo systemctl daemon-reload && sudo systemctl enable --now cowbird-daemon'));
+    console.log(ui.c.bold(`把下面存成 ${plan.path}：\n`));
+    console.log(plan.unit);
+    console.log(ui.c.dim('然后：' + plan.hint));
     return 0;
   }
 
-  if (process.platform === 'win32') {
-    const cmd = `schtasks /Create /TN "cowbird-daemon" /SC ONLOGON /RL LIMITED /TR "\\"${node}\\" \\"${script}\\"" /F`;
+  if (plan.platform === 'win32') {
     console.log(ui.c.bold('用计划任务在登录时拉起：\n'));
-    console.log('  ' + cmd);
-    console.log(ui.c.dim('\n也可以直接用「启动」文件夹放一个快捷方式；或者干脆 cowbird daemon start --detach 手动起。'));
+    console.log('  ' + plan.command);
+    console.log(ui.c.dim('\n' + plan.hint));
     return 0;
   }
 
-  console.log(ui.c.dim('这台平台没有内置的服务安装方式，用 docker 或前台跑：cowbird-daemon'));
+  console.log(ui.c.dim(plan.hint));
   return 0;
 }
-
-async function run(argv) {
-  const [sub, ...rest] = argv;
-  switch (sub) {
-    case 'start': return start(rest);
-    case 'stop': return stop();
-    case 'restart': await stop(); return start(['--detach', ...rest]);
-    case 'status': return status(rest);
-    case 'logs': return logs(rest);
-    case 'targets': return targets(rest);
-    case 'pair': return pair(rest);
-    case 'heal': return trigger('heal');
-    case 'refresh': return trigger('refresh');
-    case 'renew': return trigger('renew');
-    case 'warm': return trigger('warm');
-    case 'install': return install(rest);
-    case undefined:
-    case 'help':
-      console.log(`用法: cowbird daemon <子命令>
-
-  start [--detach]        启动（--detach 后台跑）
-  stop                    停止
-  restart                 重启
-  status [--json]         运行状态、各轮结果、登录态剩余
-  logs [-n 50] [-f]       看日志，-f 跟踪
-  targets [ls|add|rm]     看/改保活目标（add 01 02 支持短序号）
-  pair <url> [--token]    连远程 daemon
-  heal | refresh | renew | warm  立即跑一轮
-  install [--write]       生成 systemd / 计划任务配置`);
-      return 0;
-    default:
-      console.error(ui.c.red('未知子命令：' + sub));
-      return 2;
-  }
-}
-
-module.exports = {
-  run,
-  usage: 'daemon <start|stop|restart|status|logs|targets|pair|heal|refresh|renew|install>',
-  help: [
-    '子命令:',
-    '  start [--detach]        启动（--detach 后台跑）',
-    '  stop                    停止',
-    '  restart                 重启',
-    '  status [--json]         运行状态、各轮结果、登录态剩余',
-    '  logs [-n <行数>] [-f]   看日志，-f 跟踪',
-    '  targets [ls|add|rm]     看/改保活目标（add 01 02 支持短序号）',
-    '  pair <地址> [--token <令牌>]  连远程 daemon',
-    '  heal | refresh | renew | warm  立即跑一轮',
-    '  install [--write]       生成 systemd / 计划任务的配置（只打印，--write 才落盘）',
-    '',
-    '说明:',
-    '  daemon 管四件事：heal 保活实例、refresh 刷 token、renew 换登录态、warm 让登录态别被回收。',
-    '  keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `cowbird keepalive --help`。',
+module.exports = defineGroup({
+  usage: 'daemon <start|stop|restart|status|logs|targets|pair|heal|refresh|renew|warm|install>',
+  default: 'help',
+  subcommands: {
+    start: {
+      usage: 'start [--detach] [--port <端口>]',
+      summary: '启动（--detach 后台跑）',
+      options: [
+        { flag: 'detach', desc: '后台跑（否则前台占住终端）' },
+        { flag: 'host', arg: '<地址>', desc: '监听地址，默认取配置' },
+        { flag: 'port', arg: '<端口>', desc: '监听端口，默认取配置' },
+        { flag: 'quiet', desc: '不打印 daemon 自己的日志行' },
+      ],
+      run: start,
+    },
+    stop: { usage: 'stop', summary: '停止', run: () => stop() },
+    restart: {
+      usage: 'restart',
+      summary: '重启（等价于 stop + start --detach）',
+      options: [
+        { flag: 'host', arg: '<地址>', desc: '监听地址' },
+        { flag: 'port', arg: '<端口>', desc: '监听端口' },
+        { flag: 'quiet', desc: '不打印日志行' },
+      ],
+      run: async (args) => {
+        await stop();
+        return start({ opts: { ...args.opts, detach: true }, _: args._ });
+      },
+    },
+    status: {
+      usage: 'status [--json]',
+      summary: '运行状态、各轮结果、登录态剩余',
+      options: [{ flag: 'json', desc: '输出 JSON' }],
+      run: status,
+    },
+    logs: {
+      usage: 'logs [-n <行数>] [-f]',
+      summary: '看日志，-f 跟踪',
+      options: [
+        { flag: 'n', short: 'n', arg: '<行数>', desc: '只看最后 N 行，默认 50（-n 50）' },
+        { flag: 'follow', short: 'f', desc: '持续跟踪新日志（Ctrl-C 退出）' },
+      ],
+      run: logs,
+    },
+    targets: {
+      usage: 'targets [ls|add|rm] [实例...]',
+      summary: '看/改保活目标（add 01 02 支持短序号）',
+      options: [{ flag: 'json', desc: '输出 JSON（仅 ls）' }],
+      run: targets,
+    },
+    pair: {
+      usage: 'pair <地址> [--token <令牌>]',
+      summary: '连远程 daemon（只改地址时保留原令牌）',
+      options: [{ flag: 'token', short: 't', arg: '<令牌>', desc: '对面 daemon 的访问令牌' }],
+      run: pair,
+    },
+    heal: { usage: 'heal', summary: '立即保活一轮', run: () => trigger('heal') },
+    refresh: { usage: 'refresh', summary: '立即刷 token', run: () => trigger('refresh') },
+    renew: { usage: 'renew', summary: '立即续登录态', run: () => trigger('renew') },
+    warm: { usage: 'warm', summary: '立即做一次登录态保活', run: () => trigger('warm') },
+    install: {
+      usage: 'install [--write]',
+      summary: '生成 systemd / 计划任务配置（只打印，--write 才落盘）',
+      options: [{ flag: 'write', desc: '真的写进系统（Linux 需要 root）' }],
+      run: install,
+    },
+  },
+  notes: [
+    'daemon 管四件事：heal 保活实例、refresh 刷 token、renew 换登录态、warm 让登录态别被回收。',
+    'keepalive 不在 daemon 里 —— 它是独立长驻进程，见 `cowbird keepalive --help`。',
   ],
-};
+  exits: [[0, '正常'], [1, '执行失败 / daemon 没在跑'], [2, '未知子命令']],
+});
