@@ -74,7 +74,7 @@ cowbird login                 # 打印一个链接，在任意设备（手机也
 
 ```bash
 node --check lib/platform/workbuddy/*.js
-node lib/platform/workbuddy/selftest.js     # 46 项，纯离线，exit 0
+node lib/platform/workbuddy/selftest.js     # 51 项，纯离线，exit 0（实现已迁到 test/drivers/workbuddy.js）
 node -e "require('./lib/platform').use('workbuddy')"
 ```
 

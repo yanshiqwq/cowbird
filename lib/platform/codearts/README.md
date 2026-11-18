@@ -13,7 +13,7 @@ lib/platform/codearts/
 ├── cgroup.js       cgroup v2/v1 容量采集与解析
 ├── answers.js      提问回答的 answers 形状（数组的数组 + `"label" - description`）
 ├── auth.js         登录态（cookie 文件）、手动粘贴导入、浏览器登录（代码，未在此机执行）
-├── selftest.js     纯离线自测：99 项，零网络、零副作用
+├── selftest.js     入口壳（实现在 test/drivers/codearts.js）：纯离线自测，零网络、零副作用
 └── README.md       本文件
 ```
 
@@ -95,7 +95,7 @@ limits: { maxSyncMs: 28000, defaultSyncMs: 20000, maxBackground: true, wakeTimeo
 | 20 | 模型：`GET /PromptCenterService/v1/model/builtin`，12 个，含 `deepseek-v4.1-flash-1017` | `model.list()`；`defaults.model` |
 | 21 | 输出能力：`seq 1 20000` → 108,894 字符全返回；shell 身份 root、cwd `/workspace`；`base64 -w0` 取二进制可行 | `exec.run` 不设输出上限；`fs.write` 分块；`pullFile` base64 |
 
-### 自测覆盖（`selftest.js`，114 项，全离线）
+### 自测覆盖（`test/drivers/codearts.js`，116 项，全离线）
 
 - SSE：整段 / 逐字节 / CRLF（含 `\r|\n` 跨块边界）/ 多行 `data` / 注释行 / `id`,`retry` 忽略 / 非 JSON 不丢帧；
 - 事件：15 种逐一映射、`error` 哨兵算 done、普通 `error` 仍是 error、`stopped`→done、`heartbeat`→raw+alive、未知事件→raw；

@@ -9,7 +9,7 @@ lib/platform/minimax/
   index.js       provider 定义：能力位 / auth / instances / agent / model / doctor
   transport.js   HTTP 层：公共 query、x-signature、yy 自算、SSE 解析、token 轮换回收
   map.js         会话 → Instance、消息/SSE 负载 → 契约 Event（纯函数）
-  selftest.js    纯离线自检（42 项，不联网、不需要凭据；含 yy 的真机抓包复算）
+  selftest.js    入口壳（实现在 test/drivers/minimax.js）：纯离线自检 42 项，不联网、不需要凭据
   README.md      本文件
 ```
 
@@ -31,7 +31,7 @@ node test/contract.js                        # 18 项（内核契约，不受本
 | `auth.browser` | ✅ | 登录只有短信验证码（`/v1/api/user/login/sms/send` → `/login/phone`），只能在浏览器里完成 |
 | `instances.list` | ✅ | `GET /minimax-cloud/api/v1/sidebar/session/tree`（**纯 HTTP**，2026-11-17 打通） |
 | `instances.meta` | ✅ | `GET /minimax-cloud/api/v1/session/{id}`（**纯 HTTP**，实测输出见 §7.2） |
-| `agent` | ✅ | SSE `agent-stream…/events` + 轮询 `/session/{id}/message` |
+| `agent` | ✅ | 轮询 `/session/{id}/message`（默认）；`agent-stream…/events` 能连上但**一帧都不发**，仅 `mode:'sse'` 时尝试 |
 | `model` | ✅ | `/minimax-cloud/api/v1/config`（纯 HTTP） |
 | `instances.create` / `rename` / `remove` | ❌ | 写接口**未实测**，不猜 |
 | `exec` / `exec.background` / `fs` | ❌ | **平台没有这条通道**（见第 5 节，这是结论不是遗漏） |
@@ -198,7 +198,7 @@ list.reason;   // 'E_UNAUTHORIZED' / 'E_NO_TOKEN' / …
 | GET | `/minimax-cloud/api/v1/session/{id}/message` | 200（不带 yy） | `agent.stream`（轮询）/ `agent.history` |
 | GET | `/agent`、`/skill`、`/plugins/enabled`、`/interaction/capabilities` | 200（不带 yy） | 未包装成能力位 |
 | GET | `agent-stream.minimax.cn/minimax-cloud/api/v1/events` | 200（不带 yy，SSE） | `agent.stream`（首选） |
-| POST | `/minimax-cloud/api/v1/session/{id}/message` | **未实测** | `agent.send`（**默认禁用**，见第 6 节） |
+| POST | `/minimax-cloud/api/v1/session/{id}/message` | 200（响应是 SSE） | `agent.send`（**2026-11-18 真机验证**，默认开） |
 
 `/queue`、`/input-summaries`、`/agent`、`/skill`、`/plugins/*`、`/cron`、`/project`、`/channel*`、`/interaction/capabilities`、`/agent/{id}/questionnaire/pending` 的路径都登记在 `transport.P` 里，但驱动**没有**把它们包装成能力位 —— 没实测语义就不声明。
 
@@ -207,7 +207,7 @@ list.reason;   // 'E_UNAUTHORIZED' / 'E_NO_TOKEN' / …
 | 原始 | kind | 说明 |
 |---|---|---|
 | `status.status_type`（0 正常 / 3 `user_aborted`） | `status` | `{status, statusType, message}`；0→`idle`、3→`aborted`、其它→`unknown_<n>`（只有 0/3 是实测的） |
-| `msg_type:2` 的 `msg_content` | `text` | 差分吐字（累计快照只吐新增部分） |
+| `role:'assistant'` 的 `msg_content` | `text` | 差分吐字；**msg_type 恒为 1，不能当角色用** |
 | `thinking_content` | `thinking` | 附 `durationMs = thinking_duration_ms` |
 | `tool_calls[].tool_name` + `tool_call_args` | `tool` | `{id, name, input}`，`input` 是 `JSON.parse(tool_call_args)` |
 | `tool_calls[].tool_call_result_data` | `tool_result` | `{id, name, ok, out, exitCode, durationMs, truncated, dispatchedLocally, skipReason}`；`ok` 由 `details.exit_code` 判（没有就 `null`，不假装成功） |
@@ -254,8 +254,8 @@ connecting → (可选的 sent) → streaming(SSE)
 | `yy` 的完整算法 | **已逆出**（§3） | 自算并带上；`yy:false` 可整个不发（服务端不校验） |
 | 写接口是否也校验 yy | 未验（抓包全是 GET） | 读接口已证明不校验；POST 仍默认关着 |
 | `yy` 是否与 URL/body 绑定 | 已验：**是**（每请求算一次） | 但服务端不验，所以无所谓 |
-| POST `/session/{id}/message` 的请求体 | **未实测** | 按 `{content}` 实现，**默认禁用**；四个开关任一打开（见下） |
-| POST 的响应形状 | 未实测 | 原样返回 `data`，不解析 |
+| POST `/session/{id}/message` 的请求体 | ✅ `{content}` | 2026-11-18 真机验证；默认开，可显式关（`allowUnverifiedSend:false`） |
+| POST 的响应形状 | ✅ SSE（多帧 `data:{...}`） | 2xx 即算发出；从帧里取 `current_turn_id` |
 | SSE 的事件名 / 帧格式 / 是否需要别的 query | 未实测 | 宽松解析：标准 SSE、NDJSON、一次性 JSON 都认；认不出落 `raw`；额外参数只加 `session_id` |
 | `agent-stream` 是否会断线重连、有无心跳 | 未验 | 靠 `streamTimeoutMs` + 轮询补偿 |
 | `instances.create/rename/remove` | 未实测 | 不声明 |

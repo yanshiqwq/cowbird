@@ -15,23 +15,31 @@
 把「谁维护凭据」收敛成一个进程之后，这三个问题一起消失了。所以现在：
 
 ```
-lib/          ← 纯能力，不认识「谁在调用」
-  session.js    登录态 → HTTP 请求（cookie jar / UA / Set-Cookie 合并）
-  cloud.js      控制面接口
-  e2b.js        数据面 exec/put/get
-  acp.js        对话流
-  resolve.js    实例引用解析
-  creds.js      ★ 凭据门面：daemon 优先、本地兜底
-  api.js        daemon 的 HTTP 客户端
+lib/                ← 纯能力，不认识「谁在调用」
+  api.js            daemon 的 HTTP 客户端（只发请求，不代理凭据）
+  args.js / ui.js / log.js / config.js / fsx.js（原子写）
+  browser.js        playwright 的加载与浏览器路径（只有 login 用）
+  resolve.js        实例引用解析（纯函数）
+  platform/         ← 平台层：内核与驱动之间的唯一约定
+    contract.js     能力位 / 事件 / 错误码 / limits
+    validate.js     驱动形状校验（没有"已定义就跳过"的快路径）
+    index.js        注册表 + ctx（store / effective 配置 / log）
+    channels.js     渠道 = 平台 × 账号
+    accounts.js     账号目录与迁移
+    target.js       跨渠道解析实例
+    sandboxes.js    沙箱登记簿（哪些会话是"我们建的"）
+    exec.js         执行编排（唤醒预算 / busy 退避 / 后台 follow）
+    caps.js         能力缺失的唯一出口（退出码 2）
+    util.js / shell.js / cookie.js / sse.js / http.js / settings.js  ← 跨驱动共用的原语
+    codearts/ qoder/ minimax/ workbuddy/ trae/                    ← 每个平台一个目录
 
-bin/cowbird.js        ← 客户端：解析命令、调 lib、打印
+bin/cowbird.js        ← 客户端：解析命令、调内核、打印
 bin/cowbird-daemon.js ← 守护：调度循环 + 起 HTTP 服务
 lib/daemon/         ← 只被 daemon 用
-  scheduler.js   三条循环的编排与状态
+  scheduler.js   四条循环（heal / refresh / renew / warm）的编排与状态
   heal.js        保活一轮
-  renew.js       SSO 续登录态
-  server.js      HTTP 接口与鉴权
-  logstore.js    日志
+  server.js      HTTP 接口与鉴权（**不代理凭据**）
+  logstore.js    日志（0600、脱敏、8MB 轮转）
 ```
 
 ## 凭据是怎么流动的
@@ -64,7 +72,7 @@ lib/daemon/         ← 只被 daemon 用
   命令行里 `workbuddy/main` 与 `workbuddy` 的区别只是后者走默认账号。
 - **daemon 不代理业务请求**。`exec` 的结果不经过 daemon 转发，CLI 拿到凭据后自己直连数据面。
   这样长命令、大文件传输不会在 daemon 那里排队，daemon 也不需要懂 protobuf 帧。
-- **daemon 自己永远是 `local` 模式**（启动时设 `COWBIRD_LOCAL=1`）。否则它会通过 daemon 客户端
+- **daemon 只读本地凭据**：它不通过 HTTP 去问自己（`/api/state` 这类代理接口已删除）。
   请求到自己身上，形成回环。
 - **daemon 按渠道逐个动作**：一轮 heal 里 A 账号的实例和 B 账号的实例各用自己的 `ctx`；
   唯一不能并行的东西（模块级缓存）在驱动里已经被清干净 —— 这是 `test/contract.js` 里
@@ -119,7 +127,7 @@ lib/daemon/         ← 只被 daemon 用
 | 形态 | 场景 | 凭据在哪 | CLI 怎么连 |
 |---|---|---|---|
 | 单机 | 一台电脑用 | 本机 | 自动发现 `127.0.0.1:8787`，没有就用本地文件 |
-| 单机 + 不常驻 | 偶尔用 | 本机 | `--local` 或干脆不启 daemon |
+| 单机 + 不常驻 | 偶尔用 | 本机 | 干脆不启 daemon |
 | 服务器 + 多客户端 | 关电脑也要续命 | 服务器 | `daemon pair http://host:8787 --token ...` |
 | 容器 | 服务器上隔离部署 | 挂载卷 | 同上，端口映射到宿主回环 |
 

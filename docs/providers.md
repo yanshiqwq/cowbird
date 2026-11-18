@@ -53,7 +53,7 @@ module.exports = defineProvider({
 });
 ```
 
-**能力位（`CAP`）**：`auth` / `auth.renew` / `auth.browser` / `instances.list|create|rename|remove|meta` / `agent` / `agent.question` / `agent.interrupt` / `exec` / `exec.background` / `fs` / `exec.wake` / `model`
+**能力位（`CAP`）**：`auth` / `auth.renew` / `instances.list|create|rename|remove|meta` / `agent` / `agent.question` / `agent.interrupt` / `exec` / `exec.background` / `fs` / `exec.wake` / `model`
 
 **必需**：`instances.list` 与 `agent`。**声明了能力就必须有对应方法**，否则 `defineProvider` 直接抛错（这一步能挡掉大半手误）。
 
@@ -188,10 +188,11 @@ limits: { maxSyncMs: 28000,   // 平台硬顶（码道 30s → 留 2s 余量）
 node --check lib/platform/<id>/*.js
 node lib/platform/<id>/selftest.js      # 纯离线，必须 exit 0
 node -e "require('./lib/platform').use('<id>')"   # 契约校验通过
-npm test                                # contract + guard + smoke
+npm test                                # contract + guard + smoke + daemon + 五份驱动自测
 ```
 
-**`selftest.js` 的硬要求**：不发任何真实网络请求（假 `fetch` 注入，或纯函数断言）。现有五个驱动共 **282 项**离线用例，都是这么来的。
+**`selftest.js` 的硬要求**：不发任何真实网络请求（假 `fetch` 注入，或纯函数断言）。现有五个驱动共 **299 项**离线用例，都是这么来的；
+pm test 会全部跑一遍（实现放在 	est/drivers/<id>.js，lib/platform/<id>/selftest.js 只是入口壳，因此不把测试代码塞进 npm 包）。
 
 `test/guard.js` 是解耦棘轮：内核（`lib/`、`commands/`，排除 `lib/platform/`）里出现平台主机名或对 WorkBuddy 实现的直接依赖就失败。**新驱动不该改 `BASELINE`。**
 

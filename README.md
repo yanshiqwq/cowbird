@@ -23,7 +23,7 @@
 | 码道 CodeArts | 内核 `/9800/shell` | 同步硬顶 30s，超时要转后台 |
 | Qoder | 沙箱 MCP（JSON-RPC） | 120s 默认 / 600s 最大，支持原生后台 |
 | MiniMax | **没有**执行通道 | 只读：列表 / 详情 / 历史 |
-| TRAE | **没有**执行通道 | 会话=云端 KVM 真 VM；会话/消息/文件可用（数据面已打通），但没有 terminal/pty |
+| TRAE | 沙箱 MCP（`exec`，经沙箱里的 agent 代跑） | 会话=云端 KVM 真 VM；一条命令一轮，没有直连端点 |
 
 > 原名 `wbsbx`（WorkBuddy-only）。0.9.0 起旧命令名、旧环境变量、旧数据目录的兼容层已全部移除。
 
@@ -130,7 +130,7 @@ cowbird daemon status
 `渠道/引用`（`qoder:alt/01`）—— 后者用于同名实例分属不同账号的情况。
 
 全局开关：`--channel <平台[:账号]>` / `--platform <id>` / `--account <名字>` 指定渠道；
-`--local` 这次不走 daemon；`--remote <url> [--token <t>]` 这次换成另一台 daemon。
+`--remote <url> [--token <t>]` 这次换成另一台 daemon。
 
 ## 沙箱会话 / 用户会话
 
@@ -303,7 +303,7 @@ nohup cowbird keepalive work-01 > keepalive.log 2>&1 &
 ```bash
 docker run -d --name cowbird-keepalive-01 --restart unless-stopped -u 1000:1000 \
   -v /srv/cowbird:/opt/cowbird:ro -v /srv/cowbird-data:/data \
-  -e COWBIRD_HOME=/data -e COWBIRD_LOCAL=1 \
+  -e COWBIRD_HOME=/data \
   --entrypoint node <有 node 的镜像> \
   /opt/cowbird/bin/cowbird.js keepalive <实例id> --nudge 300
 ```
@@ -341,11 +341,10 @@ daemon 暴露的东西很少，除 `/health` 外全部要 Bearer 令牌：
 |---|---|---|
 | GET | `/health` | 探活，无鉴权，不泄露内容 |
 | GET | `/api/status` | 状态 + 最近各轮结果 + 每个渠道的登录态剩余 |
-| GET/PUT | `/api/state` | 读 / 推某个渠道的登录态（`?channel=` 不写就用默认渠道） |
-| GET | `/api/token/:id` | 取实例的访问凭据（`?channel=` 同上） |
 | POST | `/api/heal` | 立即保活一轮 |
 | POST | `/api/refresh` | 立即刷 token |
 | POST | `/api/renew` | 立即续登录态（走遍所有能续的渠道） |
+| POST | `/api/warm` | 立即做一次登录态保活 |
 | PUT | `/api/targets` | 改保活目标 |
 | GET | `/api/logs?limit=100` | 最近日志 |
 

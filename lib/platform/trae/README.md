@@ -151,7 +151,7 @@ X-Trae-Client-Type: web
 ## 6. 自测
 
 ```bash
-node lib/platform/trae/selftest.js     # 19 项，全离线（假传输）
+node lib/platform/trae/selftest.js     # 42 项，全离线（假传输）
 ```
 
 覆盖：cookie 解析、登录指引与校验、status 映射、会话归一、消息 → 归一事件（含非零退出码）、

@@ -107,7 +107,7 @@ Qoder 是**云 agent 会话**平台（不是云 IDE）：会话跑在阿里云 A
 
 ### 4.2 存进驱动
 
-驱动自己不碰文件路径，登录态落在内核给的 `ctx.store`（`$COWBIRD_HOME/platform/qoder/auth.json`，0600）：
+驱动自己不碰文件路径，登录态落在内核给的 `ctx.store`（`$COWBIRD_HOME/platform/qoder/accounts/<账号>/auth.json`，0600）：
 
 ```bash
 cd /path/to/cowbird
@@ -311,7 +311,7 @@ grant=<JWT>
 | `wire.js` | 全部纯函数：事件映射、JWT 解析、隧道 URL、cgroup 解析、包装脚本、SSE 帧（不碰网络/磁盘） |
 | `http.js` | 传输层：cookie jar、`x-requested-with`、`X-Qoder-Remote-Api-Version: 4`、401 → `AuthError`、SSE |
 | `mcp.js` | 隧道三步 + MCP JSON-RPC + 缓存与重试 |
-| `selftest.js` | **纯离线**自测：假事件数组 + 假 MCP 响应 + 假 fetch，46 项 |
+| `selftest.js` | 入口壳（实现在 `test/drivers/qoder.js`）：**纯离线**自测，48 项 |
 | `README.md` | 本文 |
 
 ```bash

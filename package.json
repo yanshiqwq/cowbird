@@ -1,6 +1,6 @@
 {
   "name": "cow-bird",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "把各大网页 agent 自带的沙箱 shell 包装成统一的云沙箱管理器（多平台驱动 + 免 LLM 直连执行 + 保活）",
   "bin": {
     "cowbird": "bin/cowbird.js",
@@ -12,6 +12,8 @@
     "commands/",
     "docs/",
     "README.md",
+    "CHANGELOG.md",
+    "DISCLAIMER.md",
     "LICENSE",
     "Dockerfile",
     "docker-compose.yml"
@@ -24,7 +26,8 @@
     "daemon": "node bin/cowbird-daemon.js",
     "ls": "node bin/cowbird.js ls",
     "doctor": "node bin/cowbird.js doctor",
-    "test": "node test/contract.js && node test/guard.js && node test/smoke.js",
+    "test": "node test/contract.js && node test/guard.js && node test/smoke.js && node test/daemon.js && npm run test:drivers",
+    "test:drivers": "node lib/platform/workbuddy/selftest.js && node lib/platform/codearts/selftest.js && node lib/platform/qoder/selftest.js && node lib/platform/minimax/selftest.js && node lib/platform/trae/selftest.js",
     "test:net": "node test/halfopen.js"
   },
   "author": "yanshiqwq",

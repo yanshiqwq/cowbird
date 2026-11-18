@@ -1,7 +1,7 @@
 # cowbird daemon 镜像
 #
-#   docker build -t cowbird-daemon:slim .                    # 纯 HTTP 刷 token，~150MB
-#   docker build -t cowbird-daemon:full --build-arg WITH_BROWSER=1 .   # 带 chromium，能续登录态
+#   docker build -t cowbird-daemon:slim --target slim .      # 纯 HTTP 刷 token，~150MB（默认最后一个 stage 是 full，别漏 --target）
+#   docker build -t cowbird-daemon:full .                    # 带 chromium，能跑浏览器登录
 #
 # full 版多出来的东西只有一个用途：cookie 快满 7 天时，用真浏览器走一次 SSO 换新 session。
 # 不需要它就把 renew.enabled 留 false，用 slim 就行。
@@ -9,9 +9,9 @@ ARG NODE_IMAGE=node:22-bookworm-slim
 
 FROM ${NODE_IMAGE} AS deps
 WORKDIR /app
-COPY package.json ./
+COPY package.json package-lock.json ./
 # playwright-core 是 optionalDependency，装它但不装浏览器二进制，slim 版靠它也只是个空驱动
-RUN npm install --omit=dev --no-audit --no-fund && npm cache clean --force 2>/dev/null || true
+RUN npm ci --omit=dev --omit=optional --no-audit --no-fund
 
 FROM ${NODE_IMAGE} AS base
 # 容器里必须听 0.0.0.0，否则宿主端口映射打不进去（映射转到容器 IP，不是容器回环）。
@@ -21,7 +21,7 @@ ENV NODE_ENV=production \
     COWBIRD_DAEMON_HOST=0.0.0.0
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
+COPY package.json package-lock.json ./
 COPY bin ./bin
 COPY lib ./lib
 COPY commands ./commands

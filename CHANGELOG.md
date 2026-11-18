@@ -3,6 +3,43 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.17.0] - 2026-11-18
+
+**按审计清单做了一轮全量修复：10 个 P0、两条安全边界，并把 6 个平台无关的原语上提到内核。**
+
+### BREAKING
+- 缺能力（平台不支持 exec / 删 / 改名 / 登录……）统一 **退出码 2**，执行失败仍是 1：m/create/rename/login/keepalive/history/exec 现在一致。
+- 删除 daemon 的 `/api/state`（GET/PUT）与 `/api/token/:id`：**daemon 不再代理凭据**，CLI 与 daemon 各自读同一数据目录。
+- 删除 `--local` / `COWBIRD_LOCAL`（只写不读的空开关）。
+- `--platform` 写在命令后面也生效（之前 `create --platform qoder` 会被静默忽略，落到默认平台）。
+
+### 修复
+- **MiniMax 的 `prompt` / `watch` 真机打通**（2026-11-18，真实账号对拍 8 轮）：`agent.send` 的请求体就是 `{content}`、响应是 SSE（之前按 JSON 解析，发出去却抛错，且默认禁用）；正文事件改按 `role === 'assistant'` 判（真机 `msg_type` 恒为 1，之前一个字都吐不出来）；`/message` 是最近 20 条升序，开流时按 `timestamp`（毫秒）划历史基线，历史不再重放；`events` 端点能连上但一帧不发，默认改走轮询且"没收到任何事件"时不判 idle；观察窗会传给驱动，`watch -s 6` 不再挂到 120s。
+- codearts 的 `login --cookie` 接通（无浏览器环境唯一路径，之前仍去开浏览器，还提示重跑同一条命令）。
+- `put` 不再用 UTF-8 读本地文件：二进制走 `fs.binary`（base64）或 `exec.put`；纯文本通道**拒绝**二进制而不是写坏；补字节数校验。
+- `doctor --json` 的退出码按异常项算（之前恒 0，CI 门禁失效）。
+- `daemon start --detach` 探活失败不再报"已启动"；探测地址改用 `--host/--port`。
+- `daemon targets rm` 解析不到就报错退出，不再假报"已更新"；`daemon pair` 不带 `--token` 不再清空已有令牌。
+- `--print-only` 真的只打印链接（不轮询、不落盘）。
+- `exec --background` 的 follow 有了兜底上限，不再可能永久挂住。
+- `watch --duration` 在安静流上也会到点退出（改用 `collect` 的计时器）。
+- `daemon logs -n 50` 的 `-n` 之前根本没注册（报"未知选项 -n"），现在 `-n` / `--n` 都能用。
+- `login` 的 `.bak` 凭据副本会在退出/中断时回收；不再在命令里接管 `uncaughtException`。
+- 凭据写盘失败会当场报错（`ctx.store.writeStrict` / `E_STORE`）；配置与状态改为原子写，损坏的配置留 `.corrupt` 并告警。
+- 日志 0600、脱敏 token/cookie、写失败会喊一声。
+- `resolve` 不再为未命中的长数字 id 伪造实例（`E_NOT_FOUND` 终于报得出来）。
+
+### 安全
+- 渠道名不再接受 `module:`：daemon 的 `?channel=` 不能再 `require` 任意本地模块。
+- `validateShape` 删掉"自带 `has()` 就跳过校验"的快路径（伪造驱动能把 `store.dir` 指到数据目录之外）。
+
+### 架构 / 重构
+- 新增跨驱动原语：`util`（sleep/clip/redact）、`shell`（单引号转义）、`cookie`（jar）、`sse`（帧解析）、`http`（超时/取消/JSON）、`settings`（读 `ctx.effective`）。
+- 能力缺失统一从 `lib/platform/caps.js` 抛；契约新增 `CAP.FS_BINARY` 与 `ERR` 错误码表。
+- 删除零消费者：`p.model` / `p.transport` / `CAP.MODEL` / `CAP.LOGIN_BROWSER`、`DaemonClient` 的四个方法。
+- 驱动自测迁到 `test/drivers/<id>.js`（`lib/platform/<id>/selftest.js` 留入口壳），并纳入 `npm test`。
+- 新增 `test/daemon.js`（调度器状态机 + HTTP 鉴权/路由 + 服务安装渲染），daemon 的 552 行从零覆盖到有回归。
+- daemon 拆分：保活目标的"三写"下沉 `lib/daemon/targets.js`、systemd/计划任务下沉 `lib/daemon/service.js`、轮次互斥骨架下沉 `lib/daemon/round.js`。
 ## [0.16.0] - 2026-11-18
 
 **TRAE 打通 `prompt` 与 `exec`：发消息就是 HTTP，exec 走沙箱里的 MCP 执行端。**
