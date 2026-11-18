@@ -6,12 +6,14 @@
 // 这里负责把各种形状**归一成可读行**，并落两份文件（jsonl + txt）。
 const path = require('path');
 const fs = require('fs');
-const { parse, need, num } = require('../lib/args');
+const { need, num } = require('../lib/args');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const { CAP, EVENT } = require('../lib/platform/contract');
+const { capabilityError } = require('../lib/platform/caps');
 const { describe } = require('../lib/platform/stream');
 const { pickTarget } = require('../lib/platform/target');
+const { defineCommand } = require('../lib/command');
 const log = require('../lib/log').log;
 
 const USAGE = 'history [--duration <秒>] [--limit <条>] [--out <目录>] [--json] <实例>';
@@ -42,59 +44,57 @@ function renderOne(m) {
   return who + s.slice(0, 4000);
 }
 
-async function run(argv) {
-  const args = parse(argv, { values: ['duration', 'sec', 'out', 'limit'], flags: ['json'], aliases: { s: 'duration' } });
-  const [ref] = need(args, 1, USAGE);
-
-  const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
-  const p = ctx.provider;
-  if (!p.agent || typeof p.agent.history !== 'function') {
-    throw new Error(`本平台 ${p.displayName} 没有提供历史接口`);
-  }
-
-  const opts = {
-    maxWaitMs: num(args.opts.duration || args.opts.sec, 12) * 1000,
-    limit: num(args.opts.limit, 0) || undefined,
-  };
-  const r = await p.agent.history(ctx, inst.id, opts);
-  const messages = (r && (r.messages || r.events)) || [];
-
-  // 落盘：jsonl 保原始，txt 是给人看的
-  const outDir = args.opts.out || cfg.HOME;
-  fs.mkdirSync(outDir, { recursive: true });
-  const rawPath = path.join(outDir, `history-${inst.id}.jsonl`);
-  const txtPath = path.join(outDir, `history-${inst.id}.txt`);
-  fs.writeFileSync(rawPath, messages.map((m) => JSON.stringify(m)).join('\n'));
-  const lines = messages.map(renderOne).filter(Boolean);
-  fs.writeFileSync(txtPath, lines.join('\n'));
-
-  if (args.opts.json) {
-    console.log(JSON.stringify({
-      platform: p.id, id: inst.id, messages: messages.length, lines: lines.length,
-      truncated: Boolean(r && r.truncated), raw: rawPath, txt: txtPath,
-    }));
-    return 0;
-  }
-  console.log(`消息 ${messages.length} 条（可读 ${lines.length} 行）${r && r.truncated ? ui.c.yellow('（可能被截断）') : ''}`);
-  console.log(ui.c.dim('原始: ' + rawPath));
-  console.log(ui.c.dim('摘要: ' + txtPath));
-  return 0;
-}
-
-module.exports = {
-  run,
+module.exports = defineCommand({
   usage: USAGE,
-  help: [
-    '选项:',
-    '  -s, --duration <秒>  平台靠重放抓历史时，最多抓多少秒（默认 12）',
-    '  --limit <条>         只要最近 N 条',
-    '  --out <目录>         落盘目录，默认数据目录',
-    '  --json               只打印结果路径与条数',
-    '',
-    '说明:',
-    '  各平台的历史来源不同：WorkBuddy 只能靠 ACP 重放（没有查询接口，所以是"抓一段流"），',
-    '  码道是分页接口（倒序，驱动已还原），Qoder 是事件溯源，MiniMax 是 message 接口。',
-    '  产物两个文件：history-<id>.jsonl（原始）与 history-<id>.txt（可读摘要）。',
-    '  会话特别长时，--duration 给少了会截断 —— 输出里的「消息 N 条」是实际拿到的。',
+  options: [
+    { flag: 'duration', short: 's', arg: '<秒>', desc: '平台靠重放抓历史时，最多抓多少秒（默认 12）' },
+    { flag: 'sec', arg: '<秒>', desc: '--duration 的旧名字（兼容）' },
+    { flag: 'limit', arg: '<条>', desc: '只要最近 N 条' },
+    { flag: 'out', arg: '<目录>', desc: '落盘目录，默认数据目录' },
+    { flag: 'json', desc: '只打印结果路径与条数' },
   ],
-};
+  notes: [
+    '各平台的历史来源不同：WorkBuddy 只能靠 ACP 重放（没有查询接口，所以是"抓一段流"），',
+    '码道是分页接口（倒序，驱动已还原），Qoder 是事件溯源，MiniMax 是 message 接口。',
+    '产物两个文件：history-<id>.jsonl（原始）与 history-<id>.txt（可读摘要）。',
+    '会话特别长时，--duration 给少了会截断 —— 输出里的「消息 N 条」是实际拿到的。',
+  ],
+  exits: [[0, '成功'], [1, '执行失败'], [2, '平台没有历史接口']],
+  run: async (args) => {
+    const [ref] = need(args, 1, USAGE);
+
+    const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
+    const p = ctx.provider;
+    if (!p.agent || typeof p.agent.history !== 'function') {
+      throw capabilityError(`本平台 ${p.displayName} 没有提供历史接口`, { capability: 'agent.history' });
+    }
+
+    const opts = {
+      maxWaitMs: num(args.opts.duration || args.opts.sec, 12) * 1000,
+      limit: num(args.opts.limit, 0) || undefined,
+    };
+    const r = await p.agent.history(ctx, inst.id, opts);
+    const messages = (r && (r.messages || r.events)) || [];
+
+    // 落盘：jsonl 保原始，txt 是给人看的
+    const outDir = args.opts.out || cfg.HOME;
+    fs.mkdirSync(outDir, { recursive: true });
+    const rawPath = path.join(outDir, `history-${inst.id}.jsonl`);
+    const txtPath = path.join(outDir, `history-${inst.id}.txt`);
+    fs.writeFileSync(rawPath, messages.map((m) => JSON.stringify(m)).join('\n'));
+    const lines = messages.map(renderOne).filter(Boolean);
+    fs.writeFileSync(txtPath, lines.join('\n'));
+
+    if (args.opts.json) {
+      console.log(JSON.stringify({
+        platform: p.id, id: inst.id, messages: messages.length, lines: lines.length,
+        truncated: Boolean(r && r.truncated), raw: rawPath, txt: txtPath,
+      }));
+      return 0;
+    }
+    console.log(`消息 ${messages.length} 条（可读 ${lines.length} 行）${r && r.truncated ? ui.c.yellow('（可能被截断）') : ''}`);
+    console.log(ui.c.dim('原始: ' + rawPath));
+    console.log(ui.c.dim('摘要: ' + txtPath));
+    return 0;
+  },
+});

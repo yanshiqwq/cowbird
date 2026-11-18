@@ -2,11 +2,12 @@
 //
 // 内核只认归一化事件（EVENT.*），平台差异由驱动吸收：
 // 所以同一条命令既能看 WorkBuddy 的 ACP，也能看码道的具名 SSE、Qoder 的轮询增量。
-const { parse, need, num } = require('../lib/args');
+const { need, num } = require('../lib/args');
 const ui = require('../lib/ui');
 const { CAP, EVENT } = require('../lib/platform/contract');
-const { describe } = require('../lib/platform/stream');
+const { describe, collect } = require('../lib/platform/stream');
 const { pickTarget } = require('../lib/platform/target');
+const { defineCommand } = require('../lib/command');
 const log = require('../lib/log').log;
 
 const USAGE = 'watch [--duration <秒>] [--raw] [--grep <词>] <实例>';
@@ -39,51 +40,44 @@ function printer(opts) {
       case EVENT.PERMISSION: console.log(ui.c.yellow('[permission] ') + (d.tool || '')); break;
       case EVENT.STATUS: console.log(ui.c.dim('[status] ' + (d.status || '?'))); break;
       default:
-        if (/^EVT/.test(line)) console.log(ui.c.dim(line));
-        else console.log(ui.c.dim('[raw] ' + line.slice(0, 240)));
+        console.log(ui.c.dim('[raw] ' + line.slice(0, 240)));
     }
   };
 }
 
-async function run(argv) {
-  const args = parse(argv, { values: ['duration', 'sec', 'grep'], flags: ['raw'], aliases: { s: 'duration' } });
-  const [ref] = need(args, 1, USAGE);
-  const sec = num(args.opts.duration || args.opts.sec, 20);
-
-  const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
-  const p = ctx.provider;
-
-  log(`连上 ${inst.name || inst.id} · ${p.displayName} · ${ctx.channel}，观听 ${sec}s…`);
-  const print = printer(args.opts);
-  const stream = p.agent.stream(ctx, inst.id, {});
-  const deadline = Date.now() + sec * 1000;
-  try {
-    for await (const ev of stream) {
-      print(ev);
-      if (Date.now() > deadline) break;
-    }
-  } catch (e) {
-    log('流断了：' + String(e.message || e).slice(0, 120));
-    return 1;
-  } finally {
-    try { stream.return && stream.return(); } catch {}
-  }
-  return 0;
-}
-
-module.exports = {
-  run,
+module.exports = defineCommand({
   usage: USAGE,
-  help: [
-    '选项:',
-    '  -s, --duration <秒>  看多久，默认 20',
-    '  --raw                打印归一化事件 JSON（含原始旁路）',
-    '  --grep <词>          只显示匹配的行',
-    '',
-    '说明:',
-    '  连上去看实时事件流。历史重放默认跳过（只想看新事件）。',
-    '  这是"看一会儿"，不是常驻：到点自动断开。要持续保活用 keepalive 或 daemon。',
-    '  事件已被驱动归一（text/thinking/tool/tool_result/artifact/usage/question/done），',
-    '  所以不同平台看到的是同一套词。',
+  options: [
+    { flag: 'duration', short: 's', arg: '<秒>', desc: '看多久，默认 20' },
+    { flag: 'sec', arg: '<秒>', desc: '--duration 的旧名字（兼容）' },
+    { flag: 'raw', desc: '打印归一化事件 JSON（含原始旁路）' },
+    { flag: 'grep', arg: '<词>', desc: '只显示匹配的行' },
   ],
-};
+  notes: [
+    '连上去看实时事件流。历史重放默认跳过（只想看新事件）。',
+    '这是"看一会儿"，不是常驻：到点自动断开。要持续保活用 keepalive 或 daemon。',
+    '事件已被驱动归一（text/thinking/tool/tool_result/artifact/usage/question/done），',
+    '所以不同平台看到的是同一套词。',
+  ],
+  exits: [[0, '正常到点断开'], [1, '流断了（连接错误）'], [2, '平台不支持对话']],
+  run: async (args) => {
+    const [ref] = need(args, 1, USAGE);
+    const sec = num(args.opts.duration || args.opts.sec, 20);
+
+    const { inst, ctx } = await pickTarget(ref, { log, cap: CAP.AGENT });
+    const p = ctx.provider;
+
+    log(`连上 ${inst.name || inst.id} · ${p.displayName} · ${ctx.channel}，观听 ${sec}s…`);
+    const print = printer(args.opts);
+    // 同上：驱动内部的兜底 deadline 不能超过观察窗（否则 collect 到点调 return() 也停不下来）
+    const stream = p.agent.stream(ctx, inst.id, { timeoutMs: sec * 1000 });
+    // collect 的 timer 会主动 stream.return()，所以超时在"一直没事件"的流上也成立
+    // （早先是"收到事件才判 deadline"，安静流上 --duration 完全不生效）
+    const sum = await collect(stream, { timeoutMs: sec * 1000, breakOnDone: false, onEvent: print });
+    if (sum.errors.length) {
+      log('流断了：' + String((sum.errors[0] && sum.errors[0].message) || '未知错误').slice(0, 120));
+      return 1;
+    }
+    return 0;
+  },
+});

@@ -4,7 +4,7 @@
 // 一个「渠道」就是一对 平台:账号，实例、登录态、保活都挂在渠道上。
 //
 // 这条命令只管本地：不联网、不改云端状态。想加账号是 `cowbird login --as <名字>`。
-const { parse } = require('../lib/args');
+const { defineCommand } = require('../lib/command');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const registry = require('../lib/platform');
@@ -65,8 +65,20 @@ async function listAll(args) {
   return 0;
 }
 
-async function run(argv) {
-  const args = parse(argv, { flags: ['json', 'force'] });
+module.exports = defineCommand({
+  usage: USAGE,
+  options: [
+    { flag: 'json', desc: '输出 JSON' },
+    { flag: 'force', desc: '删掉某平台唯一的那份登录态' },
+  ],
+  notes: [
+    '渠道 = 平台:账号，例如 workbuddy:default / qoder:alt。',
+    '默认渠道用于「实例引用不带渠道前缀」时先找哪个；找不到会继续找其它渠道。',
+    '加账号：cowbird login --as <名字>（同平台可以挂多个）。',
+    '子命令：ls（默认）/ use <渠道> / rm <渠道> / mv <旧> <新>。',
+  ],
+  exits: [[0, '正常'], [1, '用法错误 / 账号不存在']],
+  run: async (args) => {
   const sub = args._[0] || 'ls';
 
   if (sub === 'ls' || sub === 'list') return listAll(args);
@@ -124,27 +136,4 @@ async function run(argv) {
   throw new Error('用法: cowbird ' + USAGE);
 }
 
-module.exports = {
-  run,
-  usage: USAGE,
-  help: [
-    '子命令:',
-    '  ls               所有渠道（默认）',
-    '  use <渠道>       设为默认渠道（写进 cowbird.json）',
-    '  rm <渠道>        删掉该账号的本地登录态',
-    '  mv <旧> <新>     改账号名（目录改名，不动凭据）',
-    '',
-    '选项:',
-    '  --json           输出 JSON',
-    '  --force          删掉某平台唯一的那份登录态',
-    '',
-    '说明:',
-    '  渠道 = 平台:账号，例如 workbuddy:default / qoder:alt。',
-    '  默认渠道用于「实例引用不带渠道前缀」时先找哪个；找不到会继续找其它渠道。',
-    '  加账号：cowbird login --as <名字>（同平台可以挂多个）。',
-    '',
-    '退出码:',
-    '  0  正常',
-    '  1  用法错误 / 账号不存在',
-  ],
-};
+});

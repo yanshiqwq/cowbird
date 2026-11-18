@@ -39,19 +39,23 @@ for (const [name, def] of Object.entries(COMMANDS)) {
 function extractGlobals(argv) {
   const out = [];
   let i = 0;
+  const take = (flag) => {
+    const v = argv[++i];
+    if (v === undefined || v === '') throw new Error(`--${flag} 需要一个值`);
+    return v;
+  };
   for (; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--local') { process.env.COWBIRD_LOCAL = '1'; continue; }
-    if (a === '--platform') { process.env.COWBIRD_PLATFORM = argv[++i]; continue; }
+    if (a === '--platform') { process.env.COWBIRD_PLATFORM = take('platform'); continue; }
     if (a.startsWith('--platform=')) { process.env.COWBIRD_PLATFORM = a.slice(11); continue; }
-    if (a === '--account') { process.env.COWBIRD_ACCOUNT = argv[++i]; continue; }
+    if (a === '--account') { process.env.COWBIRD_ACCOUNT = take('account'); continue; }
     if (a.startsWith('--account=')) { process.env.COWBIRD_ACCOUNT = a.slice(10); continue; }
-    if (a === '--channel') { process.env.COWBIRD_CHANNEL = argv[++i]; continue; }
+    if (a === '--channel') { process.env.COWBIRD_CHANNEL = take('channel'); continue; }
     if (a.startsWith('--channel=')) { process.env.COWBIRD_CHANNEL = a.slice(10); continue; }
-    if (a === '--remote') { process.env.COWBIRD_DAEMON_URL = argv[++i]; continue; }
+    if (a === '--remote') { process.env.COWBIRD_DAEMON_URL = take('remote'); continue; }
     if (a.startsWith('--remote=')) { process.env.COWBIRD_DAEMON_URL = a.slice(9); continue; }
     if (a.startsWith('--token=')) { process.env.COWBIRD_DAEMON_TOKEN = a.slice(8); continue; }
-    if (a === '--token') { process.env.COWBIRD_DAEMON_TOKEN = argv[++i]; continue; }
+    if (a === '--token') { process.env.COWBIRD_DAEMON_TOKEN = take('token'); continue; }
     out.push(a);
     break;                       // 遇到命令名，后面的原样保留
   }
@@ -93,7 +97,6 @@ ${ui.c.bold('实例引用方式：')}
 
 ${ui.c.bold('全局开关')}
   写在命令之前，例如 cowbird --channel qoder:alt ls
-  --local                 使用本地凭据
   --channel <平台[:账号]>  指定渠道
   --platform <id>         指定平台（账号取默认）
   --account <名字>        指定账号（平台取默认）
@@ -150,10 +153,10 @@ async function main() {
 }
 
 main()
-  .then((code) => process.exit(code || 0))
+  .then((code) => { process.exitCode = Number(code) || 0; })
   .catch((e) => {
     console.error(ui.c.red('出错：') + String((e && e.message) || e).replace(/\n/g, '\n  '));
     if (process.env.COWBIRD_DEBUG) console.error(e.stack);
     // 能力缺失（例如平台没有 exec）用 2 与"执行失败=1"区分开
-    process.exit(e && e.code === 'E_CAPABILITY' ? 2 : 1);
+    process.exitCode = e && e.code === 'E_CAPABILITY' ? 2 : 1;
   });

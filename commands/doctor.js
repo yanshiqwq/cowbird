@@ -5,7 +5,7 @@
 // 所以它在体检里是「信息项」，不给黄灯。
 const fs = require('fs');
 const path = require('path');
-const { parse } = require('../lib/args');
+const { defineCommand } = require('../lib/command');
 const cfg = require('../lib/config');
 const ui = require('../lib/ui');
 const api = require('../lib/api');
@@ -38,11 +38,6 @@ function checkHome() {
 // 目标配了 script 却读不到文件，是"十轮之后才发现"的那种错 —— 放在体检里当场暴露。
 
 async function checkDaemon() {
-  const c = cfg.readConfig();
-  if (!c.daemon.prefer) {
-    add('info', 'daemon', '配置里关掉了（daemon.prefer=false），只用本地凭据');
-    return;
-  }
   try {
     const st = await new api.DaemonClient().status();
     const last = st.lastHeal && st.lastHeal.at
@@ -57,9 +52,21 @@ async function checkDaemon() {
 }
 
 
-async function run(argv) {
-  const args = parse(argv, { flags: ['no-net', 'json'] });
+module.exports = defineCommand({
+  usage: 'doctor [--no-net] [--json]',
+  options: [
+    { flag: 'no-net', desc: '不联网（只看本地登录态与缓存）' },
+    { flag: 'json', desc: '输出 JSON' },
+  ],
+  notes: [
+    '按依赖顺序体检：node → 数据目录 → 默认平台 → 渠道 → 登录态 → 接口 → 实例/凭据 → daemon。',
+    '「渠道」一项每个「平台:账号」一行，多账号 / 多平台同时挂时一眼看清谁还能用。',
+    '某个渠道要看细节：cowbird --channel <渠道> doctor。',
+  ],
+  exits: [[0, '没有异常项（警告不影响退出码）'], [1, '存在异常项（--json 也一样）']],
+  run: async (args) => {
   const allowNet = !args.opts['no-net'];
+  rows.length = 0;                       // 模块级数组：同一进程跑两次要清零，别把上一轮的结果带进来
 
   checkNode();
   checkHome();
@@ -77,9 +84,16 @@ async function run(argv) {
   }
 
   // ---- 渠道：每个「平台:账号」一行（多账号 / 多平台同时挂时一眼看清谁还能用）----
+  // 用 selected() 而不是 all()：`cowbird --channel qoder doctor` 只该看那一个渠道。
   const channels = require('../lib/platform/channels');
   let chs = [];
-  try { chs = channels.all(); } catch (e) { add('warn', '渠道', String(e.message).slice(0, 140)); }
+  try {
+    chs = channels.selected({
+      channel: cfg.envVal('COWBIRD_CHANNEL'),
+      platform: cfg.envVal('COWBIRD_PLATFORM'),
+      account: cfg.envVal('COWBIRD_ACCOUNT'),
+    });
+  } catch (e) { add('warn', '渠道', String(e.message).slice(0, 140)); }
   for (const ch of chs) {
     let d;
     try { d = await channels.describeLogin(ch); } catch (e) { add('warn', `渠道 ${ch.key}`, String(e.message).slice(0, 140)); continue; }
@@ -134,32 +148,17 @@ async function run(argv) {
   rows.length = 0;
   rows.push(...dedup);
 
-  if (args.opts.json) {
-    console.log(JSON.stringify(rows.map(([l, n, d]) => ({ level: l, name: n, detail: d })), null, 2));
-    return 0;
-  }
-  console.log(ui.table(['', '项目', '状态'], rows.map(([l, n, d]) => [ICON[l], n, d]), { sep: false }));
+  // 异常项决定退出码（--json 也一样：CI 用 JSON 时的门禁不能失效）
   const bad = rows.filter((r) => r[0] === 'bad').length;
   const warn = rows.filter((r) => r[0] === 'warn').length;
+
+  if (args.opts.json) {
+    console.log(JSON.stringify(rows.map(([l, n, d]) => ({ level: l, name: n, detail: d })), null, 2));
+    return bad ? 1 : 0;
+  }
+  console.log(ui.table(['', '项目', '状态'], rows.map(([l, n, d]) => [ICON[l], n, d]), { sep: false }));
   console.log(bad ? ui.c.red(`\n${bad} 项异常`) : warn ? ui.c.yellow(`\n${warn} 项待注意`) : ui.c.green('\n全部正常'));
   return bad ? 1 : 0;
 }
 
-module.exports = {
-  run,
-  usage: 'doctor [--no-net] [--json]',
-  help: [
-    '选项:',
-    '  --no-net   不联网（只看本地登录态与缓存）',
-    '  --json     输出 JSON',
-    '',
-    '说明:',
-    '  按依赖顺序体检：node → 数据目录 → 默认平台 → 渠道 → 登录态 → 接口 → 实例/凭据 → daemon。',
-    '  「渠道」一项每个「平台:账号」一行，多账号 / 多平台同时挂时一眼看清谁还能用。',
-    '  某个渠道要看细节：cowbird --channel <渠道> doctor。',
-    '',
-    '退出码:',
-    '  0  没有异常项（警告不影响退出码）',
-    '  1  存在异常项',
-  ],
-};
+});
