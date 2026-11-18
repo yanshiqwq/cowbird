@@ -1,6 +1,6 @@
 {
-  "name": "cow-bird",
-  "version": "0.17.0",
+  "name": "@yanshiqwq/cow-bird",
+  "version": "0.17.1",
   "description": "把各大网页 agent 自带的沙箱 shell 包装成统一的云沙箱管理器（多平台驱动 + 免 LLM 直连执行 + 保活）",
   "bin": {
     "cowbird": "bin/cowbird.js",
@@ -19,7 +19,7 @@
     "docker-compose.yml"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "scripts": {
     "start": "node bin/cowbird.js",
@@ -53,6 +53,7 @@
   ],
   "license": "MIT",
   "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   }
 }

@@ -1,0 +1,30 @@
+name: publish
+
+# 打 v* tag 时发到 GitHub Packages（npm.pkg.github.com）。
+# 不依赖 secrets 里的 NPM_TOKEN：用仓库自带的 GITHUB_TOKEN（需要 packages: write）。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@yanshiqwq'
+      # playwright-core 只给 login 弹浏览器用，发布与测试都不需要
+      - run: npm ci --omit=optional --no-audit --no-fund
+      - run: npm test
+      - run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -3,6 +3,17 @@
 格式参照 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循语义化版本。
 破坏性变更会标 **BREAKING**。
 
+## [0.17.1] - 2026-11-18
+
+**登录统一成「弹浏览器，或粘一串」。**
+
+- `cowbird login` 默认弹一个临时 profile 的 Edge/Chrome，用户手动登录后自动抓登录态（含 HttpOnly cookie）；没装 `playwright-core` 就直接提示粘贴，不再报错退出。
+- `--cookie` 直通所有平台（MiniMax 这类只认 token 的会按 JWT 识别）；没给 `--cookie` 时支持交互式粘贴。
+- TRAE / MiniMax 的 `auth.login` 支持浏览器路径：TRAE 抓 `*.trae.cn` 的 cookie，MiniMax 读 `localStorage._token`。
+- 命令层不再直接依赖 `lib/browser`，改走 `lib/platform/browser.js` 门面（解耦守卫会拦）。
+- 文档精简：README 从 390 行压到 ~130 行，细节留给 `docs/` 与各驱动 README。
+- 包名改为 `@yanshiqwq/cow-bird`（GitHub Packages 要求 scoped 名），`engines.node` 提到 `>=20`，LICENSE 署名改 `cowbird contributors`。
+
 ## [0.17.0] - 2026-11-18
 
 **按审计清单做了一轮全量修复：10 个 P0、两条安全边界，并把 6 个平台无关的原语上提到内核。**

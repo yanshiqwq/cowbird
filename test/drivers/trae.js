@@ -50,7 +50,8 @@ ok('parseCookieString：拆开、去重、补 domain', () => {
 
 okA('login：没有 cookie 时给的是可操作的指引，不是一句"失败"', async () => {
   const { ctx } = fakeCtx();
-  await assert.rejects(() => auth.login(ctx, {}), (e) => /document\.cookie/.test(e.message) && /sessionid/.test(e.message));
+  // browser:false = 明确不弹浏览器（测试里不能真起浏览器）
+  await assert.rejects(() => auth.login(ctx, { browser: false }), (e) => e.code === 'E_NO_BROWSER' && /cookie/.test(e.message));
 });
 
 okA('login：缺 sessionid 的串要拒绝（别把别人的 cookie 当登录态）', async () => {

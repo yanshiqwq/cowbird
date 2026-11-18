@@ -2,8 +2,8 @@
 #
 #   docker compose up -d
 #
-# 第一次用之前先在这台机器（或任何有浏览器的机器）上跑一次 cowbird login，
-# 然后把 state.json 放进 ./data/ 里 —— 容器不会帮你扫码。
+# 第一次用之前，先在这台机器（或任何有浏览器的机器）上跑一次 cowbird login，
+# 凭据落在 ~/.cowbird/platform/<平台>/accounts/<账号>/ ；把那个数据目录挂到容器的 /data 即可。
 services:
   daemon:
     build:

@@ -22,7 +22,7 @@ WorkBuddy（`www.workbuddy.cn`）的云沙箱：一个会话 = 一个容器，�
 | — | `auth.device.{start,poll,describe}` | 无头登录（打印链接 + 轮询），内核 `login` 直接调 |
 | `instances.*` | list/get/create/rename/remove | 控制面 `/console/as/conversations/*` |
 | `instances.meta` | `info()` | 进容器读 cgroup，同时给「可见」与「真配额」 |
-| `instances` | `refresh()` / `token()` | 会话级 E2B 凭据（daemon 的 refresh 循环与 `/api/token` 用） |
+| `instances` | `refresh()` / `token()` | 会话级 E2B 凭据（daemon 的 refresh 循环用；daemon 只读本地，不再对外转发凭据） |
 | `agent` | `stream/send/history/answer/interrupt` | ACP over SSE |
 | `exec` | `run/start/poll/put/get` + `probe` | E2B `process.Process/Start`（connect+json 五字节帧） |
 | `fs` | `list/read/write` | 复用 exec 通道（find / base64） |

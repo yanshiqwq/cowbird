@@ -3,15 +3,18 @@
 // 登录落在**账号**上：`--as <名字>` 就往那个账号目录里写，不写就是该平台的默认账号。
 // 同一个平台可以挂多个账号，各自的凭据互相看不见（见 lib/platform/accounts.js）。
 //
-// 两种登录形态，由驱动决定：
-//   ① 打印链接授权（默认）：在微信/浏览器里打开链接完成授权，不需要本地浏览器。
-//   ② 驱动自己实现 auth.login()：浏览器或粘 cookie。
+// 三条路，按顺序挑一条：
+//   ① 打印链接授权（auth.device，WorkBuddy）：微信里打开链接即可，不需要本地浏览器。
+//   ② 弹浏览器（playwright）：打开登录页，用户手动登录，成功后自动抓 cookie（含 HttpOnly）。
+//   ③ 手动粘贴：`--cookie "<串>"`，或没装 playwright 时命令直接问你要。
 const fs = require('fs');
 const path = require('path');
+const readline = require('readline');
 const { num } = require('../lib/args');
 const { defineCommand } = require('../lib/command');
 const ui = require('../lib/ui');
 const cfg = require('../lib/config');
+const browser = require('../lib/platform/browser');    // 内核侧门面，命令层不直接依赖 lib/browser
 const accounts = require('../lib/platform/accounts');
 const channels = require('../lib/platform/channels');
 const { CAP } = require('../lib/platform/contract');
@@ -20,6 +23,25 @@ const { log } = require('../lib/log');
 
 const USAGE = 'login [--as <账号>] [--max-wait <分钟>] [--cookie "<串>"]';
 const { sleep } = require('../lib/platform/util');
+
+/** 问一行输入（secret 会显示在终端里，但只在本机、且是用户自己主动粘的） */
+function askLine(question) {
+  return new Promise((resolve) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: process.stdin.isTTY === true });
+    let done = false;
+    const fin = (v) => { if (done) return; done = true; try { rl.close(); } catch {} ; resolve(String(v || '').trim()); };
+    rl.on('close', () => fin(''));
+    try { rl.question(question, fin); } catch { fin(''); }
+  });
+}
+
+/** 该平台"从哪弄到串"的提示 */
+function pasteHint(p) {
+  const id = p.id;
+  if (id === 'minimax') return '浏览器登录 agent.minimax.cn 后，控制台执行 localStorage.getItem("_token")，把整串粘进来';
+  if (id === 'trae') return '浏览器登录 work.trae.cn 后，DevTools → Application → Cookies 复制全部（含 HttpOnly 的 sessionid）';
+  return '浏览器登录后，DevTools → Network 里任一请求 → 右键 Copy as cURL，取其中 cookie: 后面的整串';
+}
 
 /** 把账号目录整个拷到同级隐藏目录，登录失败/换人了就还原 */
 function snapshot(ch) {
@@ -127,6 +149,62 @@ async function deviceLogin(p, ctx, opts) {
   }
 }
 
+/** 把用户粘的串落到账号上：优先 importCookies，其次 auth.login({token|cookie}) */
+async function usePasted(p, ctx, raw, opts) {
+  const s = String(raw || '').trim();
+  if (!s) throw new Error('粘进来的是空的');
+  if (p.auth && typeof p.auth.importCookies === 'function') {
+    await p.auth.importCookies(ctx, s, opts);
+    return { code: 0, identity: null, label: null, via: 'paste' };
+  }
+  if (!p.auth || typeof p.auth.login !== 'function') {
+    throw capabilityError(`本平台 ${p.displayName} 既不支持粘 cookie，也没有 auth.login()`, { capability: CAP.AUTH });
+  }
+  // JWT 形态的串当 token 用（minimax 这种只认 token 的平台）
+  const looksJwt = /^eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/.test(s);
+  const out = await p.auth.login(ctx, { ...opts, ...(looksJwt ? { token: s } : { cookie: s }) });
+  if (out && out.ok) {
+    return {
+      code: 0,
+      identity: (out.user && (out.user.name || out.user.uid)) || null,
+      label: (out.user && out.user.name) || null,
+      via: 'paste',
+    };
+  }
+  return { code: 1, reason: (out && (out.reason || out.hint)) || '驱动不认这串内容' };
+}
+
+/** 没有浏览器 / 浏览器起不来时的兜底：让用户粘一串 */
+async function pasteFlow(p, ctx, opts, why) {
+  console.log(ui.c.yellow('改为手动粘贴登录态') + (why ? '：' + why : ''));
+  console.log(ui.c.dim('  ' + pasteHint(p)));
+  const raw = await askLine('粘贴后回车（直接回车取消）: ');
+  if (!raw) {
+    console.log(ui.c.dim('已取消'));
+    return { code: 1, reason: '没有输入' };
+  }
+  return usePasted(p, ctx, raw, opts);
+}
+
+/** 弹浏览器：开哪一页由驱动的 auth.login 决定，这里只负责提示与兜底 */
+async function browserFlow(p, ctx, opts) {
+  console.log(ui.c.dim('已打开浏览器，请在窗口里完成登录（成功后会自动继续；想改粘贴就 Ctrl-C 后加 --cookie）'));
+  try {
+    const out = await p.auth.login(ctx, { ...opts, browser: true });
+    if (out && out.ok) {
+      const bits = [];
+      if (out.user && out.user.name) bits.push('账号 ' + out.user.name);
+      if (out.ttlDays != null) bits.push('还能用 ' + Number(out.ttlDays).toFixed(1) + ' 天');
+      console.log(ui.c.green('OK') + ' 已登录' + (bits.length ? '（' + bits.join(' · ') + '）' : ''));
+      return { code: 0, identity: (out.user && (out.user.name || out.user.uid)) || null, label: (out.user && out.user.name) || null };
+    }
+    return pasteFlow(p, ctx, opts, (out && (out.reason || out.hint)) || '驱动没有浏览器登录路径');
+  } catch (e) {
+    if (e && (e.code === 'E_NO_BROWSER' || e.code === 'E_LOGIN_TIMEOUT')) return pasteFlow(p, ctx, opts, e.message);
+    throw e;
+  }
+}
+
 module.exports = defineCommand({
   usage: USAGE,
   options: [
@@ -134,17 +212,17 @@ module.exports = defineCommand({
     { flag: 'account', arg: '<名字>', desc: '--as 的别名（内部统一按账号处理）' },
     { flag: 'max-wait', short: 'm', arg: '<分钟>', desc: '等待授权的有效期，默认 20' },
     { flag: 'max-min', arg: '<分钟>', desc: '--max-wait 的旧名字（兼容）' },
-    { flag: 'cookie', arg: '<串>', desc: '粘一串 cookie（无浏览器机器上唯一能走的路；码道/Qoder 等 cookie 型平台）' },
+    { flag: 'cookie', arg: '<串>', desc: '直接粘一串登录态（cookie；minimax 这类平台粘 token），跳过浏览器' },
     { flag: 'print-only', desc: '只打印登录链接就退出（不轮询、不落盘；给"在另一台机器开浏览器"用）' },
     { flag: 'oauth', desc: '走 OAuth(PKCE+DPoP) 换 STS 凭据（码道：snap-access 那一面，非控制面 cookie）' },
     { flag: 'callback', arg: '<地址>', desc: '浏览器在另一台机器时，把跳转回来的 http://127.0.0.1:…/oauth/callback?code=… 粘回来' },
   ],
   notes: [
-    '打印一个链接，在微信/浏览器里打开并授权，这边自动收到登录态。',
-    '没有浏览器的机器上直接用 --cookie 粘一串（不依赖 playwright）。',
+    '默认：弹一个浏览器窗口让你自己登录，登录成功后自动抓登录态（含 HttpOnly cookie）。',
+    '这台机器没装 playwright-core 时，不再弹窗，直接提示你粘贴一串（也可以预先 --cookie 给出）。',
+    'WorkBuddy 例外：它走「打印链接 + 轮询」，在微信/浏览器里打开授权即可，不需要本地浏览器。',
     '加第二个账号：cowbird login --as 别名。不加 --as 时若授权的是别的账号，会还原原凭据并提示。',
     '--platform 是全局开关（写在 login 之前）：cowbird --platform codearts login',
-    '码道的 --oauth 走「本地回调 + 轮询 ticket」两条腿，够不着时用 --callback 手动补。',
     '想看现有账号：cowbird account ls。',
   ],
   exits: [
@@ -193,29 +271,19 @@ module.exports = defineCommand({
 
   try {
     let r;
-    if (cookieIn && canImport) {
-      await p.auth.importCookies(ctx, cookieIn, opts);
-      console.log(ui.c.green('OK') + ' 已导入粘贴的 cookie');
-      r = { code: 0, identity: null, label: null };
+    if (cookieIn) {
+      r = await usePasted(p, ctx, cookieIn, opts);
+      if (r.code === 0) console.log(ui.c.green('OK') + ' 已导入粘贴的登录态');
     } else if (canDevice) {
       r = await deviceLogin(p, ctx, opts);
+    } else if (p.auth && typeof p.auth.login === 'function') {
+      // 有 playwright 就弹浏览器让用户自己登；没有就当场问他要一串
+      r = browser.hasPlaywright()
+        ? await browserFlow(p, ctx, opts)
+        : await pasteFlow(p, ctx, opts, '这台机器没装 playwright-core（npm i playwright-core 才会弹浏览器）');
+      if (r.code === 0 && r.via === 'paste') console.log(ui.c.green('OK') + ' 已导入粘贴的登录态');
     } else {
-      if (cookieIn && !canImport) {
-        throw capabilityError(`本平台 ${p.displayName} 不支持粘 cookie 登录（它只认 auth.login）`, { capability: CAP.AUTH });
-      }
-      const out = await p.auth.login(ctx, opts);
-      r = out && out.ok
-        ? { code: 0, identity: (out.user && (out.user.name || out.user.uid)) || null, label: out.user && out.user.name }
-        : { code: 1, reason: out && out.reason, hint: out && out.hint };
-      if (r.code === 0) {
-        const bits = [];
-        if (r.label) bits.push('账号 ' + r.label);
-        if (out.ttlDays != null) bits.push('还能用 ' + Number(out.ttlDays).toFixed(1) + ' 天');
-        console.log(ui.c.green('OK') + ' 已登录' + (bits.length ? '（' + bits.join(' · ') + '）' : ''));
-      } else {
-        console.log(ui.c.yellow('未登录') + (r.reason ? '：' + r.reason : ''));
-        if (r.hint) console.log(ui.c.dim(r.hint));
-      }
+      r = await pasteFlow(p, ctx, opts, '驱动没有 auth.login()');
     }
 
     if (r.printed) return 0;              // --print-only：链接已打印，不等待、不落盘
