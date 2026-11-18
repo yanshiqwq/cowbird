@@ -7,7 +7,7 @@
 //   cowbird platform show <id>   单个平台的细节（能力、限制、默认值、渠道）
 //
 // 能力位与 contract.js 的 CAP 一一对应；中文名在 CAP_NAME 里，缺一条测试会报（test/smoke.js）。
-const { parse } = require('../lib/args');
+const { defineCommand } = require('../lib/command');
 const ui = require('../lib/ui');
 const registry = require('../lib/platform');
 const accounts = require('../lib/platform/accounts');
@@ -16,7 +16,6 @@ const channels = require('../lib/platform/channels');
 const CAP_NAME = Object.freeze({
   auth: '登录态',
   'auth.renew': '自动续期',
-  'auth.browser': '浏览器登录',
   'instances.list': '实例列表',
   'instances.create': '新建',
   'instances.rename': '改名',
@@ -29,7 +28,7 @@ const CAP_NAME = Object.freeze({
   'exec.background': '后台任务',
   'exec.wake': '唤醒沙箱',
   fs: '文件通道',
-  model: '模型',
+  'fs.binary': '二进制文件',
 });
 
 /** 一个平台下的渠道：有凭据的账号；默认渠道那个打 * */
@@ -175,8 +174,17 @@ async function showOne(id) {
   return { p, defKey, chs };
 }
 
-async function run(argv) {
-  const args = parse(argv, { flags: ['json', 'all'] });
+const cmd = defineCommand({
+  usage: 'platform [ls|show <id>] [--all] [--json]',
+  options: [
+    { flag: 'json', desc: '输出 JSON' },
+    { flag: 'all', desc: '连样例驱动一起列（默认只列真实平台）' },
+  ],
+  notes: [
+    '不带子命令 = 能力对照表；show <id> = 单平台细节（含它的渠道与默认值）。',
+  ],
+  exits: [[0, '正常'], [1, '用法错误 / 没有这个平台']],
+  run: async (args) => {
   const sub = args._[0];
 
   if (!sub || sub === 'ls' || sub === 'list') return listAll(args);
@@ -208,30 +216,7 @@ async function run(argv) {
   return 0;
 }
 
-module.exports = {
-  run,
-  CAP_NAME,
-  channelsOf,
-  matrixRows,
-  detailRows,
-  usage: 'platform [ls|show <id>] [--all] [--json]',
-  help: [
-    '子命令:',
-    '  ls            全部平台的能力对照（默认；每个平台带它自己的渠道）',
-    '  show <id>     单个平台的细节：能力、限制、默认值、渠道',
-    '',
-    '选项:',
-    '  --all         连样例驱动（_example）一起列',
-    '  --json        输出 JSON',
-    '',
-    '说明:',
-    '  平台只是驱动的命名空间，没有「当前平台」：多渠道是并行的，默认值只有一个 ——',
-    '  默认渠道（平台:账号），用 cowbird account use <平台:账号> 设置，表里打 *。',
-    '  「渠道」列是各平台已登录的账号；某个渠道要看细节用 cowbird --channel <渠道> doctor。',
-    '  第三方驱动用 COWBIRD_PLATFORM_MODULE=<路径|包名> 挂进来，同样会出现在这张表里。',
-    '',
-    '退出码:',
-    '  0  正常',
-    '  1  平台 id 不存在 / 驱动加载失败',
-  ],
-};
+});
+
+// 内部件：能力对照表/详情表由命令与测试共用（smoke.js 直接调）
+module.exports = Object.assign(cmd, { CAP_NAME, channelsOf, matrixRows, detailRows });

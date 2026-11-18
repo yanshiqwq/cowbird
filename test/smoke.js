@@ -124,6 +124,9 @@ function frame(obj) {
     assert.strictEqual(resolve.match(LIST, 'wb-sandbox-01')[0].id, LIST[0].id);
     assert.strictEqual(resolve.match(LIST, '01')[0].id, LIST[0].id);
   });
+  ok('长数字 id 未命中时不许伪造实例（否则 E_NOT_FOUND 永远报不出来）', () => {
+    assert.deepStrictEqual(resolve.match(LIST, '9999999999999999999'), []);
+  });
 
   console.log('\n表格');
   ok('中文按两列宽算，每行视觉宽度一致', () => {
@@ -139,6 +142,20 @@ function frame(obj) {
     assert.strictEqual(cfg.HOME, TMP);
     assert.strictEqual(cfg.PATHS.config, path.join(TMP, 'cowbird.json'));
     assert.strictEqual(cfg.PATHS.daemonState, path.join(TMP, 'daemon-state.json'));
+  });
+  ok('writeConfig 是原子写：写完能读回，且不留临时文件', () => {
+    cfg.writeConfig({ daemon: { token: 'tk-1' } });
+    assert.strictEqual(cfg.readConfig().daemon.token, 'tk-1');
+    const leftovers = fs.readdirSync(TMP).filter((f) => f.includes('.tmp-'));
+    assert.deepStrictEqual(leftovers, [], '不应残留临时文件：' + leftovers.join(','));
+  });
+  ok('配置损坏时不装成"没有配置"：留 .corrupt 且不抛', () => {
+    fs.writeFileSync(cfg.PATHS.config, '{ 这不是 JSON');
+    const c = cfg.readConfig();                  // 不抛
+    assert.deepStrictEqual(c.platforms, {});     // 退回默认值
+    assert.ok(fs.existsSync(cfg.PATHS.config + '.corrupt'), '应另存一份 .corrupt');
+    cfg.writeConfig({ daemon: { token: 'tk-2' } });   // 能自愈
+    assert.strictEqual(cfg.readConfig().daemon.token, 'tk-2');
   });
 
   console.log('\nkeepalive 策略');

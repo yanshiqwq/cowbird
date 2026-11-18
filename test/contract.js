@@ -71,6 +71,22 @@ const okA = async (name, fn) => { try { await fn(); pass++; console.log('  \u271
     assert.throws(() => validateShape(example, 'qoder'), /不一致/);
     assert.doesNotThrow(() => validateShape(example, '_example'));
   });
+  ok('validateShape 不接受自带 has() 的伪造驱动（id / 能力实现都要查）', () => {
+    // 老实现只要对象自带 has()+capabilities:Set 就跳过全部校验 → id 能带 ../..
+    const forged = {
+      id: '../../escape', displayName: 'x',
+      capabilities: new Set([CAP.LIST, CAP.AGENT]),
+      has: () => true, instances: { list() {} }, agent: { stream() {}, send() {} },
+    };
+    assert.throws(() => validateShape(forged), /id 只能是小写字母/);
+    // 声明了 exec 却没有 exec.run：也必须报，不能因为 has() 返回 true 就放行
+    const lying = {
+      id: 'liar', displayName: 'x',
+      capabilities: new Set([CAP.LIST, CAP.AGENT, CAP.EXEC]),
+      has: () => true, instances: { list() {} }, agent: { stream() {}, send() {} },
+    };
+    assert.throws(() => validateShape(lying), /没有 def\.exec|缺 exec\.run/);
+  });
 
   console.log('\n注册表');
   ok('内置列表包含五个真实平台 + 样例', () => {
@@ -143,6 +159,25 @@ const okA = async (name, fn) => { try { await fn(); pass++; console.log('  \u271
     assert.deepStrictEqual(channels.parse('qoder@alt'), { platform: 'qoder', account: 'alt' });
     assert.throws(() => channels.parse('01'), /不合法/);
     assert.throws(() => channels.parse('qoder:../x'), /不合法/);
+  });
+  ok('渠道名不接受 module:（外部驱动只能从 COWBIRD_PLATFORM_MODULE 进）', () => {
+    const channels = require('../lib/platform/channels');
+    // 早先 `?channel=module:/任意.js` 会让 daemon require 任意本地模块
+    const bad = (e) => e.code === 'E_BAD_CHANNEL' || e.code === 'E_BAD_ACCOUNT';
+    assert.throws(() => channels.parse('module:/tmp/x.js'), bad);
+    assert.throws(() => channels.get('module:/tmp/x.js'), bad);
+  });
+  ok('store.writeStrict 会抛（凭据写不进去不能装成功）', () => {
+    const p = registry.use('_example');
+    const ctx = registry.context(p, { account: 'strict' });
+    ctx.store.writeStrict('auth', { token: 't' });
+    assert.deepStrictEqual(ctx.store.read('auth'), { token: 't' });
+    // 在 store 目录的位置上放一个**文件**，制造"写不进去"
+    const bad = registry.context(p, { account: 'badstore' });
+    fs.mkdirSync(path.dirname(bad.store.dir), { recursive: true });
+    fs.writeFileSync(bad.store.dir, 'not a dir');
+    assert.throws(() => bad.store.writeStrict('auth', { token: 't' }), (e) => e.code === 'E_STORE');
+    fs.rmSync(bad.store.dir, { force: true });
   });
 
   ok('老布局凭据迁移到 accounts/default（幂等）', () => {
